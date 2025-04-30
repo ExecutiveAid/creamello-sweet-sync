@@ -12,7 +12,7 @@ import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
-interface Column<T> {
+export interface Column<T> {
   header: string;
   accessorKey: keyof T | ((row: T) => React.ReactNode);
   cell?: (row: T) => React.ReactNode;

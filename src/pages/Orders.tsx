@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -8,7 +7,7 @@ import { ShoppingCart, Plus, Minus, IceCreamCone, CircleDollarSign, User } from 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/ui/data-table";
-import { useOrderContext } from '@/context/OrderContext';
+import { useOrderContext, Order, OrderItem } from '@/context/OrderContext';
 
 // Types for our ice cream ordering system
 interface IceCreamFlavor {
@@ -21,29 +20,10 @@ interface IceCreamFlavor {
   available: boolean;
 }
 
-interface OrderItem {
-  flavorId: string;
-  flavorName: string;
-  scoops: number;
-  price: number;
-}
-
 interface Staff {
   id: string;
   name: string;
   role: string;
-}
-
-interface Order {
-  id: string;
-  items: OrderItem[];
-  total: number;
-  status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
-  createdAt: Date;
-  staffId: string;
-  staffName: string;
-  tableNumber?: string;
-  customerName?: string;
 }
 
 // Sample ice cream flavor data
@@ -142,6 +122,9 @@ const Orders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  
+  // Use the OrderContext to manage orders
+  const orderContext = useOrderContext();
 
   useEffect(() => {
     // Extract unique categories
@@ -161,11 +144,11 @@ const Orders = () => {
   // Filter orders when status filter changes
   useEffect(() => {
     if (!statusFilter) {
-      setFilteredOrders(orders);
+      setFilteredOrders(orderContext.orders);
     } else {
-      setFilteredOrders(orders.filter(order => order.status === statusFilter));
+      setFilteredOrders(orderContext.orders.filter(order => order.status === statusFilter));
     }
-  }, [orders, statusFilter]);
+  }, [orderContext.orders, statusFilter]);
 
   const addToCart = (flavor: IceCreamFlavor) => {
     const existingItem = cart.find(item => item.flavorId === flavor.id);
@@ -260,8 +243,8 @@ const Orders = () => {
       customerName: customerName || undefined
     };
 
-    // Add the order to the orders list
-    setOrders([...orders, newOrder]);
+    // Add the order using the OrderContext
+    orderContext.addOrder(newOrder);
 
     // Clear the cart and form
     setCart([]);
@@ -278,11 +261,8 @@ const Orders = () => {
   };
 
   const updateOrderStatus = (orderId: string, newStatus: Order['status']) => {
-    setOrders(orders.map(order => 
-      order.id === orderId 
-        ? { ...order, status: newStatus } 
-        : order
-    ));
+    // Use the OrderContext to update order status
+    orderContext.updateOrderStatus(orderId, newStatus);
 
     toast({
       title: "Order updated",
@@ -294,30 +274,31 @@ const Orders = () => {
     ? iceCreamFlavors.filter(flavor => flavor.category === selectedCategory)
     : iceCreamFlavors;
 
-  // Columns for the orders data table
+  // Columns for the orders data table - Fixed to use the proper Column<Order> type
   const orderColumns = [
     {
       header: "Order ID",
-      accessorKey: "id",
+      accessorKey: "id" as keyof Order
     },
     {
       header: "Staff",
-      accessorKey: "staffName",
+      accessorKey: "staffName" as keyof Order
     },
     {
       header: "Table/Customer",
-      accessorKey: (row: Order) => row.tableNumber ? `Table ${row.tableNumber}` : row.customerName || "N/A",
+      accessorKey: (row: Order) => row.tableNumber ? `Table ${row.tableNumber}` : row.customerName || "N/A"
     },
     {
       header: "Items",
-      accessorKey: (row: Order) => `${row.items.reduce((sum, item) => sum + item.scoops, 0)} scoops`,
+      accessorKey: (row: Order) => `${row.items.reduce((sum, item) => sum + item.scoops, 0)} scoops`
     },
     {
       header: "Total",
-      accessorKey: (row: Order) => `GHS ${row.total.toFixed(2)}`,
+      accessorKey: (row: Order) => `GHS ${row.total.toFixed(2)}`
     },
     {
       header: "Status",
+      accessorKey: "status" as keyof Order,
       cell: (row: Order) => (
         <Badge className={
           row.status === 'pending' ? 'bg-yellow-500' :
@@ -328,14 +309,15 @@ const Orders = () => {
         }>
           {row.status}
         </Badge>
-      ),
+      )
     },
     {
       header: "Created",
-      accessorKey: (row: Order) => new Date(row.createdAt).toLocaleTimeString(),
+      accessorKey: (row: Order) => new Date(row.createdAt).toLocaleTimeString()
     },
     {
       header: "Actions",
+      accessorKey: "id" as keyof Order,
       cell: (row: Order) => (
         <div className="flex space-x-2">
           {row.status !== 'delivered' && row.status !== 'cancelled' && (
@@ -359,7 +341,7 @@ const Orders = () => {
             </Select>
           )}
         </div>
-      ),
+      )
     },
   ];
 

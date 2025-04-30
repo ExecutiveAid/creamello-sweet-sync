@@ -42,6 +42,12 @@ interface OrderContextType {
   addOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: Order['status']) => void;
   getOrdersByStatus: (status?: Order['status']) => Order[];
+  // We'll add a currentUser field later for authentication
+  currentUser?: {
+    id: string;
+    name: string;
+    role: string;
+  };
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -66,8 +72,16 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return orders.filter(order => order.status === status);
   };
 
+  // Later, we'll add currentUser from authentication here
+  const value: OrderContextType = {
+    orders, 
+    addOrder, 
+    updateOrderStatus, 
+    getOrdersByStatus
+  };
+
   return (
-    <OrderContext.Provider value={{ orders, addOrder, updateOrderStatus, getOrdersByStatus }}>
+    <OrderContext.Provider value={value}>
       {children}
     </OrderContext.Provider>
   );
