@@ -16,9 +16,10 @@ type NavItemProps = {
   icon: React.ComponentType<{ className?: string }>;
   children: React.ReactNode;
   exact?: boolean;
+  highlighted?: boolean;
 };
 
-const NavItem = ({ to, icon: Icon, children, exact = false }: NavItemProps) => {
+const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false }: NavItemProps) => {
   return (
     <NavLink
       to={to}
@@ -27,12 +28,13 @@ const NavItem = ({ to, icon: Icon, children, exact = false }: NavItemProps) => {
           "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-sidebar-accent group",
           isActive
             ? "bg-sidebar-accent text-primary font-medium"
-            : "text-sidebar-foreground hover:text-sidebar-foreground"
+            : "text-sidebar-foreground hover:text-sidebar-foreground",
+          highlighted && !isActive && "text-creamello-purple font-medium"
         )
       }
       end={exact}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className={cn("h-5 w-5", highlighted && "text-creamello-purple")} />
       <span>{children}</span>
     </NavLink>
   );
@@ -56,7 +58,7 @@ export const AppSidebar = () => {
           <NavItem to="/ingredients" icon={Database}>Ingredients</NavItem>
           <NavItem to="/production" icon={ClipboardList}>Production</NavItem>
           <NavItem to="/inventory" icon={Package}>Inventory</NavItem>
-          <NavItem to="/orders" icon={IceCreamCone}>Orders</NavItem>
+          <NavItem to="/orders" icon={IceCreamCone} highlighted={true}>Orders</NavItem>
           <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
           <NavItem to="/settings" icon={Settings}>Settings</NavItem>
         </div>
