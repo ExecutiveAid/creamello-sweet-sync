@@ -10,6 +10,7 @@ import Ingredients from "./pages/Ingredients";
 import Production from "./pages/Production";
 import Inventory from "./pages/Inventory";
 import Sales from "./pages/Sales";
+import Orders from "./pages/Orders";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/production" element={<Production />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/sales" element={<Sales />} />
+            <Route path="/orders" element={<Orders />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<NotFound />} />

@@ -9,7 +9,7 @@ import {
   SidebarHeader,
   SidebarTrigger
 } from '@/components/ui/sidebar';
-import { Package, Database, ChartPie, Settings, ShoppingCart, ClipboardList } from 'lucide-react';
+import { Package, Database, ChartPie, Settings, ShoppingCart, ClipboardList, IceCreamCone } from 'lucide-react';
 
 type NavItemProps = {
   to: string;
@@ -56,6 +56,7 @@ export const AppSidebar = () => {
           <NavItem to="/ingredients" icon={Database}>Ingredients</NavItem>
           <NavItem to="/production" icon={ClipboardList}>Production</NavItem>
           <NavItem to="/inventory" icon={Package}>Inventory</NavItem>
+          <NavItem to="/orders" icon={IceCreamCone}>Orders</NavItem>
           <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
           <NavItem to="/settings" icon={Settings}>Settings</NavItem>
         </div>
