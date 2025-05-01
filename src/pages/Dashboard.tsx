@@ -1,4 +1,3 @@
-
 import { ChartPie, Package, AlertTriangle, TrendingUp, Clock } from 'lucide-react';
 import { DashboardCard } from '@/components/ui/dashboard-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,7 +37,7 @@ const Dashboard = () => {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <DashboardCard
           title="Total Inventory Value"
-          value={`$${stats.totalInventoryValue}`}
+          value={`GHS${stats.totalInventoryValue}`}
           description="Total value of all ingredients"
           icon={<Package className="h-4 w-4" />}
           trend="up"
@@ -62,7 +61,7 @@ const Dashboard = () => {
         />
         <DashboardCard
           title="Today's Sales"
-          value={`$${stats.todaySales}`}
+          value={`GHS${stats.todaySales}`}
           description="Revenue generated today"
           icon={<TrendingUp className="h-4 w-4" />}
           trend="neutral"
@@ -151,7 +150,7 @@ const Dashboard = () => {
                 },
                 {
                   header: "Total",
-                  cell: (row) => <div className="font-medium">${row.total.toFixed(2)}</div>,
+                  cell: (row) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
                   accessorKey: "total"
                 },
                 {
