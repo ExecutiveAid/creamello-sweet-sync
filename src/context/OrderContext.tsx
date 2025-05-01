@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 // Types for our order system
@@ -35,6 +34,7 @@ export interface Order {
   staffName: string;
   tableNumber?: string;
   customerName?: string;
+  paymentMethod?: string;
 }
 
 interface OrderContextType {

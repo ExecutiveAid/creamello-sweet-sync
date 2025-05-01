@@ -1,26 +1,26 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { Product, generateProducts } from '@/data/mockData';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { format, parseISO, isAfter, addDays } from 'date-fns';
+import { format, parseISO, isAfter, addDays, differenceInDays } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import { useProductInventory } from '@/context/ProductInventoryContext';
+import { exportToCSV } from '@/utils/exportCSV';
+import { Input } from '@/components/ui/input';
 
 const Inventory = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const { products } = useProductInventory();
+  const [filteredProducts, setFilteredProducts] = useState(products);
   const [searchQuery, setSearchQuery] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
-  // Load mock data
   useEffect(() => {
-    const data = generateProducts();
-    setProducts(data);
-    setFilteredProducts(data);
-  }, []);
+    setFilteredProducts(products);
+  }, [products]);
 
-  // Handle search
   useEffect(() => {
     if (searchQuery) {
       const filtered = products.filter(product => 
@@ -33,15 +33,43 @@ const Inventory = () => {
     }
   }, [searchQuery, products]);
 
-  const handleRefresh = () => {
-    const data = generateProducts();
-    setProducts(data);
-    setFilteredProducts(data);
-    toast({
-      title: "Data Refreshed",
-      description: "Inventory data has been refreshed."
+  useEffect(() => {
+    let filtered = products;
+    if (searchQuery) {
+      filtered = filtered.filter(product => product.name.toLowerCase().includes(searchQuery.toLowerCase()) || product.category.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    if (startDate) {
+      filtered = filtered.filter(product => product.dateCreated >= startDate);
+    }
+    if (endDate) {
+      filtered = filtered.filter(product => product.dateCreated <= endDate);
+    }
+    setFilteredProducts(filtered);
+  }, [searchQuery, products, startDate, endDate]);
+
+  useEffect(() => {
+    // Low stock notifications
+    products.forEach(product => {
+      if (product.availableQuantity <= 6) {
+        toast({
+          title: 'Low Stock Alert',
+          description: `${product.name} is low in stock (${product.availableQuantity} left).`,
+          variant: 'destructive',
+        });
+      }
+      // Expiry notifications
+      const daysToExpiry = differenceInDays(parseISO(product.expirationDate), new Date());
+      if (daysToExpiry >= 0 && daysToExpiry <= 7) {
+        toast({
+          title: 'Expiry Alert',
+          description: `${product.name} expires in ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'}!`,
+          variant: 'default',
+        });
+      }
     });
-  };
+    // Only run on initial mount
+    // eslint-disable-next-line
+  }, []);
 
   const getCategoryBadge = (category: string) => {
     switch (category) {
@@ -61,11 +89,43 @@ const Inventory = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={handleRefresh}>
+          <Button variant="outline" size="icon">
             <RefreshCw className="h-4 w-4" />
           </Button>
           <Button>View Stock Alerts</Button>
+          <Button
+            variant="outline"
+            onClick={() => exportToCSV(
+              filteredProducts,
+              'inventory.csv',
+              [
+                { key: 'name', label: 'Name' },
+                { key: 'category', label: 'Category' },
+                { key: 'availableQuantity', label: 'Available' },
+                { key: 'unit', label: 'Unit' },
+                { key: 'pricePerUnit', label: 'Price' },
+                { key: 'expirationDate', label: 'Expiration Date' },
+              ]
+            )}
+          >
+            Export CSV
+          </Button>
         </div>
+      </div>
+
+      <div className="flex gap-2 items-center mb-2">
+        <label>From:</label>
+        <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
+        <label>To:</label>
+        <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
+        <Button
+          variant="outline"
+          onClick={() => {
+            setStartDate('');
+            setEndDate('');
+          }}
+          disabled={!startDate && !endDate}
+        >Clear</Button>
       </div>
 
       <DataTable
@@ -95,7 +155,7 @@ const Inventory = () => {
           {
             header: "Price",
             cell: (row) => (
-              <div>${row.pricePerUnit.toFixed(2)}</div>
+              <div>GHS{row.pricePerUnit.toFixed(2)}</div>
             ),
             accessorKey: "pricePerUnit"
           },

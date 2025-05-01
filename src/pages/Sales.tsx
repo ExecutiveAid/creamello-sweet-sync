@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
@@ -8,12 +7,16 @@ import { RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { exportToCSV } from '@/utils/exportCSV';
+import { Input } from '@/components/ui/input';
 
 const Sales = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [filteredSales, setFilteredSales] = useState<Sale[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [monthlySales, setMonthlySales] = useState<any[]>([]);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   // Load mock data
   useEffect(() => {
@@ -26,15 +29,18 @@ const Sales = () => {
 
   // Handle search
   useEffect(() => {
+    let filtered = sales;
     if (searchQuery) {
-      const filtered = sales.filter(sale => 
-        sale.productName.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setFilteredSales(filtered);
-    } else {
-      setFilteredSales(sales);
+      filtered = filtered.filter(sale => sale.productName.toLowerCase().includes(searchQuery.toLowerCase()));
     }
-  }, [searchQuery, sales]);
+    if (startDate) {
+      filtered = filtered.filter(sale => sale.date >= startDate);
+    }
+    if (endDate) {
+      filtered = filtered.filter(sale => sale.date <= endDate);
+    }
+    setFilteredSales(filtered);
+  }, [searchQuery, sales, startDate, endDate]);
 
   const handleRefresh = () => {
     const salesData = generateSales();
@@ -70,7 +76,22 @@ const Sales = () => {
           <Button variant="outline" size="icon" onClick={handleRefresh}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button>Generate Report</Button>
+          <Button
+            onClick={() => exportToCSV(
+              filteredSales,
+              'sales_report.csv',
+              [
+                { key: 'date', label: 'Date' },
+                { key: 'productName', label: 'Product' },
+                { key: 'quantity', label: 'Quantity' },
+                { key: 'unitPrice', label: 'Unit Price' },
+                { key: 'total', label: 'Total' },
+                { key: 'paymentMethod', label: 'Payment Method' },
+              ]
+            )}
+          >
+            Generate Report
+          </Button>
         </div>
       </div>
 
@@ -78,19 +99,19 @@ const Sales = () => {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Today's Sales</CardTitle>
-            <CardDescription className="text-2xl font-bold">${todaySales.toFixed(2)}</CardDescription>
+            <CardDescription className="text-2xl font-bold">GHS{todaySales.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Month to Date</CardTitle>
-            <CardDescription className="text-2xl font-bold">${currentMonthSales.toFixed(2)}</CardDescription>
+            <CardDescription className="text-2xl font-bold">GHS{currentMonthSales.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Avg. Order Value</CardTitle>
-            <CardDescription className="text-2xl font-bold">${avgOrderValue.toFixed(2)}</CardDescription>
+            <CardDescription className="text-2xl font-bold">GHS{avgOrderValue.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -116,6 +137,39 @@ const Sales = () => {
         </CardContent>
       </Card>
 
+      <div className="flex gap-2 items-center mb-2">
+        <label>From:</label>
+        <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
+        <label>To:</label>
+        <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
+        <Button
+          variant="outline"
+          onClick={() => {
+            setStartDate('');
+            setEndDate('');
+          }}
+          disabled={!startDate && !endDate}
+        >Clear</Button>
+      </div>
+
+      <Button
+        variant="outline"
+        onClick={() => exportToCSV(
+          filteredSales,
+          'sales.csv',
+          [
+            { key: 'date', label: 'Date' },
+            { key: 'productName', label: 'Product' },
+            { key: 'quantity', label: 'Quantity' },
+            { key: 'unitPrice', label: 'Unit Price' },
+            { key: 'total', label: 'Total' },
+            { key: 'paymentMethod', label: 'Payment Method' },
+          ]
+        )}
+      >
+        Export CSV
+      </Button>
+
       <DataTable
         data={filteredSales}
         columns={[
@@ -133,12 +187,12 @@ const Sales = () => {
           },
           {
             header: "Unit Price",
-            cell: (row) => <div>${row.unitPrice.toFixed(2)}</div>,
+            cell: (row) => <div>GHS{row.unitPrice.toFixed(2)}</div>,
             accessorKey: "unitPrice"
           },
           {
             header: "Total",
-            cell: (row) => <div className="font-medium">${row.total.toFixed(2)}</div>,
+            cell: (row) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
             accessorKey: "total"
           },
           {

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
@@ -25,6 +24,7 @@ import { ProductionBatch, Recipe, generateProductionBatches, generateRecipes } f
 import { Plus, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { useIngredientInventory } from '@/context/IngredientInventoryContext';
 
 const Production = () => {
   const [batches, setBatches] = useState<ProductionBatch[]>([]);
@@ -42,6 +42,8 @@ const Production = () => {
     notes: '',
     status: 'planned',
   });
+
+  const { deductIngredient } = useIngredientInventory();
 
   // Load mock data
   useEffect(() => {
@@ -116,6 +118,15 @@ const Production = () => {
       notes: '',
       status: 'planned',
     });
+
+    if (batchToAdd.status === 'completed') {
+      const recipe = recipes.find(r => r.id === batchToAdd.recipeId);
+      if (recipe) {
+        recipe.ingredients.forEach(ing => {
+          deductIngredient(ing.ingredientId, ing.quantity * batchToAdd.quantity / recipe.outputQuantity);
+        });
+      }
+    }
   };
 
   const handleRefresh = () => {

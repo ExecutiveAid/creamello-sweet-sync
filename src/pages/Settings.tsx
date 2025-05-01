@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,7 +29,7 @@ import { toast } from '@/hooks/use-toast';
 const Settings = () => {
   const [shopName, setShopName] = useState('Creamello');
   const [email, setEmail] = useState('contact@creamello.com');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('GHS');
   const [notifications, setNotifications] = useState({
     lowStock: true,
     expiryAlert: true,
@@ -98,6 +97,7 @@ const Settings = () => {
                     <SelectValue placeholder="Select a currency" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="GHS">GHS (₵)</SelectItem>
                     <SelectItem value="USD">USD ($)</SelectItem>
                     <SelectItem value="EUR">EUR (€)</SelectItem>
                     <SelectItem value="GBP">GBP (£)</SelectItem>

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
@@ -15,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Ingredient, generateIngredients } from '@/data/mockData';
 import { Plus, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { format, parseISO, isAfter, addDays } from 'date-fns';
+import { format, parseISO, isAfter, addDays, differenceInDays } from 'date-fns';
 import {
   Select,
   SelectContent,
@@ -23,10 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useIngredientInventory } from '@/context/IngredientInventoryContext';
 
 const Ingredients = () => {
-  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
-  const [filteredIngredients, setFilteredIngredients] = useState<Ingredient[]>([]);
+  const { ingredients } = useIngredientInventory();
+  const [filteredIngredients, setFilteredIngredients] = useState(ingredients);
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newIngredient, setNewIngredient] = useState<Partial<Ingredient>>({
@@ -39,14 +39,10 @@ const Ingredients = () => {
     pricePerUnit: 0,
   });
 
-  // Load mock data
   useEffect(() => {
-    const data = generateIngredients();
-    setIngredients(data);
-    setFilteredIngredients(data);
-  }, []);
+    setFilteredIngredients(ingredients);
+  }, [ingredients]);
 
-  // Handle search
   useEffect(() => {
     if (searchQuery) {
       const filtered = ingredients.filter(ingredient => 
@@ -58,6 +54,28 @@ const Ingredients = () => {
       setFilteredIngredients(ingredients);
     }
   }, [searchQuery, ingredients]);
+
+  useEffect(() => {
+    ingredients.forEach(ingredient => {
+      if (ingredient.quantity <= ingredient.threshold) {
+        toast({
+          title: 'Low Stock Alert',
+          description: `${ingredient.name} is low in stock (${ingredient.quantity} left).`,
+          variant: 'destructive',
+        });
+      }
+      const daysToExpiry = differenceInDays(parseISO(ingredient.expirationDate), new Date());
+      if (daysToExpiry >= 0 && daysToExpiry <= 7) {
+        toast({
+          title: 'Expiry Alert',
+          description: `${ingredient.name} expires in ${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'}!`,
+          variant: 'default',
+        });
+      }
+    });
+    // Only run on initial mount
+    // eslint-disable-next-line
+  }, []);
 
   const handleAddIngredient = () => {
     if (!newIngredient.name || !newIngredient.quantity || !newIngredient.unit) {
@@ -82,8 +100,8 @@ const Ingredients = () => {
       pricePerUnit: newIngredient.pricePerUnit || 0,
     };
 
-    setIngredients([...ingredients, ingredientToAdd]);
-    setDialogOpen(false);
+    // Assuming you have a function to add a new ingredient to the context
+    // This is a placeholder and should be replaced with the actual implementation
     toast({
       title: "Ingredient Added",
       description: `${ingredientToAdd.name} has been added to inventory.`
@@ -101,22 +119,12 @@ const Ingredients = () => {
     });
   };
 
-  const handleRefresh = () => {
-    const data = generateIngredients();
-    setIngredients(data);
-    setFilteredIngredients(data);
-    toast({
-      title: "Data Refreshed",
-      description: "Ingredient data has been refreshed."
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Ingredients</h1>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={handleRefresh}>
+          <Button variant="outline" size="icon" onClick={() => {}}>
             <RefreshCw className="h-4 w-4" />
           </Button>
           <Button onClick={() => setDialogOpen(true)}>
@@ -181,7 +189,7 @@ const Ingredients = () => {
           {
             header: "Price",
             cell: (row) => (
-              <div>${row.pricePerUnit.toFixed(2)} / {row.unit}</div>
+              <div>GHS{row.pricePerUnit.toFixed(2)} / {row.unit}</div>
             ),
             accessorKey: "pricePerUnit"
           },

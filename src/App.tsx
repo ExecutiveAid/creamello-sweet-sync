@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,30 +13,36 @@ import Orders from "./pages/Orders";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import { OrderProvider } from "./context/OrderContext";
+import { ProductInventoryProvider } from "./context/ProductInventoryContext";
+import { IngredientInventoryProvider } from "./context/IngredientInventoryContext";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <OrderProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/ingredients" element={<Ingredients />} />
-              <Route path="/production" element={<Production />} />
-              <Route path="/inventory" element={<Inventory />} />
-              <Route path="/sales" element={<Sales />} />
-              <Route path="/orders" element={<Orders />} />
-              <Route path="/settings" element={<Settings />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <ProductInventoryProvider>
+        <IngredientInventoryProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/ingredients" element={<Ingredients />} />
+                  <Route path="/production" element={<Production />} />
+                  <Route path="/inventory" element={<Inventory />} />
+                  <Route path="/sales" element={<Sales />} />
+                  <Route path="/orders" element={<Orders />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </IngredientInventoryProvider>
+      </ProductInventoryProvider>
     </OrderProvider>
   </QueryClientProvider>
 );
