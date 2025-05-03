@@ -13,6 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useProductInventory } from '@/context/ProductInventoryContext';
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
+import { format } from 'date-fns';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 // Types for our ice cream ordering system
 interface IceCreamFlavor {
@@ -125,40 +128,6 @@ const MENU_CATEGORIES = [
   'Juice',
 ];
 
-const MENU_ITEMS = [
-  // Flavors
-  { id: 'flavor-vanilla', name: 'Vanilla', category: 'Flavors', price: 30 },
-  { id: 'flavor-chocolate', name: 'Chocolate', category: 'Flavors', price: 30 },
-  { id: 'flavor-strawberry', name: 'Strawberry', category: 'Flavors', price: 30 },
-  { id: 'flavor-oreo', name: 'Oreo', category: 'Flavors', price: 30 },
-  { id: 'flavor-pistachios', name: 'Pistachios', category: 'Flavors', price: 30 },
-  { id: 'flavor-kitkat', name: 'Kitkat', category: 'Flavors', price: 30 },
-  // Toppings
-  { id: 'topping-haribo', name: 'Haribo', category: 'Toppings', price: 10 },
-  { id: 'topping-sourjellies', name: 'Sour Jellies', category: 'Toppings', price: 10 },
-  { id: 'topping-sprinkles', name: 'Sprinkles', category: 'Toppings', price: 10 },
-  { id: 'topping-smarties', name: 'Smarties', category: 'Toppings', price: 10 },
-  // Waffles & Pancakes
-  { id: 'waffle-bubble', name: 'Bubble Waffle', category: 'Waffles & Pancakes', price: 20 },
-  { id: 'waffle-stick', name: 'Waffle Stick', category: 'Waffles & Pancakes', price: 15 },
-  { id: 'pancake-mini', name: 'Mini Pancake (10 pieces)', category: 'Waffles & Pancakes', price: 20 },
-  // Sundaes
-  { id: 'sundae-turtle', name: 'Turtle', category: 'Sundaes', price: 90, description: '2 scoops of ice cream topped with hot fudge or caramel sauce and 2 waffle sticks' },
-  { id: 'sundae-tinroof', name: 'Tin Roof', category: 'Sundaes', price: 90, description: '2 scoops of ice cream drizzled with any 2 toppings and 10 pieces of mini pancakes' },
-  { id: 'sundae-bubblecream', name: 'Bubble Cream', category: 'Sundaes', price: 70, description: '1 scoop of ice cream with bubble waffle, 1 topping and caramel or chocolate sauce' },
-  { id: 'cone', name: 'Cone', category: 'Sundaes', price: 10 },
-  // Milkshakes
-  { id: 'milkshake-vanilla', name: 'Vanilla Milkshake', category: 'Milkshakes', price: 60 },
-  { id: 'milkshake-oreo', name: 'Oreo Milkshake', category: 'Milkshakes', price: 60 },
-  { id: 'milkshake-chocolate', name: 'Chocolate Milkshake', category: 'Milkshakes', price: 60 },
-  { id: 'milkshake-strawberry', name: 'Strawberry Milkshake', category: 'Milkshakes', price: 60 },
-  // Juice
-  { id: 'juice-orange', name: 'Orange Juice', category: 'Juice', price: 30 },
-  { id: 'juice-pineapple', name: 'Pineapple Juice', category: 'Juice', price: 30 },
-  { id: 'juice-watermelon', name: 'Watermelon Juice', category: 'Juice', price: 30 },
-];
-
-// 2. Add payment method state
 const PAYMENT_METHODS = ['Cash', 'Card', 'Mobile Money'];
 
 const Receipt = ({
@@ -241,7 +210,6 @@ const Orders = () => {
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
   const [showReceipt, setShowReceipt] = useState(false);
 
-  const [selectedStaff, setSelectedStaff] = useState<string>("");
   const [tableNumber, setTableNumber] = useState<string>("");
   const [customerName, setCustomerName] = useState<string>("");
   const [activeTab, setActiveTab] = useState<string>("create");
@@ -265,6 +233,27 @@ const Orders = () => {
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  const { staff } = useAuth();
+
+  const [menuItems, setMenuItems] = useState([]);
+  const [loadingMenu, setLoadingMenu] = useState(true);
+
+  useEffect(() => {
+    const fetchMenuItems = async () => {
+      setLoadingMenu(true);
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('*');
+      if (error) {
+        toast({ title: 'Error loading menu', description: error.message, variant: 'destructive' });
+    } else {
+        setMenuItems(data);
+      }
+      setLoadingMenu(false);
+    };
+    fetchMenuItems();
+  }, []);
 
   // Cart logic
   const addToCart = (item) => {
@@ -300,20 +289,20 @@ const Orders = () => {
     }
     if (startDate) {
       filtered = filtered.filter(order => {
-        const date = typeof order.createdAt === 'string' ? order.createdAt : order.createdAt.toISOString().slice(0, 10);
+        const date = order.created_at.slice(0, 10);
         return date >= startDate;
       });
     }
     if (endDate) {
       filtered = filtered.filter(order => {
-        const date = typeof order.createdAt === 'string' ? order.createdAt : order.createdAt.toISOString().slice(0, 10);
+        const date = order.created_at.slice(0, 10);
         return date <= endDate;
       });
     }
     setFilteredOrders(filtered);
   }, [orderContext.orders, statusFilter, startDate, endDate]);
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
     if (cart.length === 0) {
       toast({
         title: "Cannot place order",
@@ -322,61 +311,44 @@ const Orders = () => {
       });
       return;
     }
-    if (!selectedStaff) {
+    if (!staff) {
       toast({
         title: "Staff selection required",
-        description: "Please select a staff member to assign this order",
+        description: "Please log in as staff",
         variant: "destructive"
       });
       return;
     }
-    const staffMember = staffMembers.find(s => s.id === selectedStaff);
-    const newOrder = {
-      id: `ORD-${Math.floor(Math.random() * 10000)}`,
-      items: [...cart],
+
+    // Prepare order items for normalized structure
+    const orderItems = cart.map(item => ({
+      flavor_id: item.id,
+      flavor_name: item.name,
+      scoops: item.quantity, // or item.scoops if that's your field
+      price: item.price,
+    }));
+
+    // Prepare order (omit id, created_at, updated_at, items)
+    const order = {
+      staff_id: staff.id,
+      customer_name: customerName || undefined,
+      table_number: tableNumber || undefined,
       total: orderTotal,
-      status: 'pending' as 'pending',
-      createdAt: new Date(),
-      staffId: selectedStaff,
-      staffName: staffMember?.name || "Unknown staff",
-      tableNumber: tableNumber || undefined,
-      customerName: customerName || undefined,
-      paymentMethod,
+      status: 'pending' as const,
+      payment_method: paymentMethod,
     };
-    const insufficientStock = cart.find(item => {
-      const product = products.find(p => p.id === item.id);
-      return !product || product.availableQuantity < item.quantity;
-    });
-    if (insufficientStock) {
-      toast({
-        title: "Insufficient Stock",
-        description: `Not enough stock for ${insufficientStock.name}. Please adjust the quantity or restock.`,
-        variant: "destructive"
-      });
-      return;
-    }
-    orderContext.addOrder(newOrder);
-    setLastOrder({ ...newOrder, paid: amountPaid, change });
+
+    await orderContext.addOrder(order, orderItems);
+    setLastOrder({ ...order, items: orderItems, paid: amountPaid, change });
     setCart([]);
     setTableNumber("");
     setCustomerName("");
-    setShowReceipt(true); // Only show, don't print yet
-    cart.forEach(item => {
-      deductStock(item.id, item.quantity);
-      const product = products.find(p => p.id === item.id);
-      if (product && product.availableQuantity - item.quantity <= (product as any).threshold) {
-        toast({
-          title: "Low Stock Alert",
-          description: `${product.name} is now low in stock!`,
-          variant: "default"
-        });
-      }
-    });
+    setShowReceipt(true);
   };
 
-  const updateOrderStatus = (orderId: string, newStatus: Order['status']) => {
+  const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
     // Use the OrderContext to update order status
-    orderContext.updateOrderStatus(orderId, newStatus);
+    await orderContext.updateOrderStatus(orderId, newStatus);
 
     toast({
       title: "Order updated",
@@ -412,11 +384,11 @@ const Orders = () => {
     },
     {
       header: "Table/Customer",
-      accessorKey: (row: Order) => row.tableNumber ? `Table ${row.tableNumber}` : row.customerName || "N/A"
+      accessorKey: (row: Order) => row.table_number ? `Table ${row.table_number}` : row.customer_name || "N/A"
     },
     {
       header: "Items",
-      accessorKey: (row: Order) => `${row.items.reduce((sum, item) => sum + item.scoops, 0)} scoops`
+      accessorKey: (row: Order) => `${row.items.reduce((sum, item) => sum + (item.scoops || 0), 0)} scoops`,
     },
     {
       header: "Total",
@@ -439,7 +411,7 @@ const Orders = () => {
     },
     {
       header: "Created",
-      accessorKey: (row: Order) => new Date(row.createdAt).toLocaleTimeString()
+      accessorKey: (row: Order) => format(new Date(row.created_at), 'HH:mm:ss'),
     },
     {
       header: "Actions",
@@ -447,7 +419,7 @@ const Orders = () => {
       cell: (row: Order) => (
         <div className="flex space-x-2">
           {row.status !== 'delivered' && row.status !== 'cancelled' && (
-            <Select
+            <Select 
               onValueChange={(value) => updateOrderStatus(row.id, value as Order['status'])}
               defaultValue={row.status}
             >
@@ -510,26 +482,30 @@ const Orders = () => {
           {/* Product Grid */}
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {MENU_ITEMS.filter(item => item.category === activeCategory).map(item => {
-                const inCart = cart.find(ci => ci.id === item.id);
-                return (
-                  <button
-                    key={item.id}
-                    className={`relative flex flex-col items-center justify-between rounded-xl border border-muted bg-white shadow-md p-4 h-44 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-creamello-purple hover:shadow-lg active:scale-95`}
-                    onClick={() => addToCart(item)}
-                    aria-label={`Add ${item.name} to order`}
-                  >
-                    {inCart && (
-                      <span className="absolute top-2 right-2 bg-creamello-purple text-white rounded-full px-3 py-1 text-lg font-bold shadow-lg z-10">
-                        {inCart.quantity}
-                      </span>
-                    )}
-                    <span className="text-lg font-bold text-center mb-1">{item.name}</span>
-                    {item.description && <span className="text-xs text-muted-foreground text-center mb-2">{item.description}</span>}
-                    <span className="text-xl font-semibold text-creamello-gray">GHS {item.price.toFixed(2)}</span>
-                  </button>
-                );
-              })}
+              {loadingMenu ? (
+                <div className="col-span-full text-center text-lg">Loading menu...</div>
+              ) : (
+                menuItems.filter(item => item.category === activeCategory).map(item => {
+                  const inCart = cart.find(ci => ci.id === item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      className={`relative flex flex-col items-center justify-between rounded-xl border border-muted bg-white shadow-md p-4 h-44 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-creamello-purple hover:shadow-lg active:scale-95`}
+                      onClick={() => addToCart(item)}
+                      aria-label={`Add ${item.name} to order`}
+                    >
+                      {inCart && (
+                        <span className="absolute top-2 right-2 bg-creamello-purple text-white rounded-full px-3 py-1 text-lg font-bold shadow-lg z-10">
+                          {inCart.quantity}
+                        </span>
+                      )}
+                      <span className="text-lg font-bold text-center mb-1">{item.name}</span>
+                      {item.description && <span className="text-xs text-muted-foreground text-center mb-2">{item.description}</span>}
+                      <span className="text-xl font-semibold text-creamello-gray">GHS {Number(item.price).toFixed(2)}</span>
+                    </button>
+                  );
+                })
+              )}
             </div>
             {/* Order Cart/Sidebar */}
             <div className="w-full md:w-96 bg-muted rounded-xl shadow-lg flex flex-col p-4 sticky top-4 self-start min-h-[400px] max-h-[80vh] overflow-y-auto">
@@ -635,22 +611,6 @@ const Orders = () => {
           {/* Staff and Table Selection (moved below for POS flow) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
             <div>
-              <label className="block text-sm font-medium mb-1">Staff Member*</label>
-              <Select onValueChange={setSelectedStaff} value={selectedStaff}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select waitress" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>Staff Members</SelectLabel>
-                    {staffMembers.map(staff => (
-                      <SelectItem key={staff.id} value={staff.id}>{staff.name} ({staff.role})</SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
               <label className="block text-sm font-medium mb-1">Table Number</label>
               <input
                 type="text"
@@ -732,13 +692,13 @@ const Orders = () => {
                 'orders_report.csv',
                 [
                   { key: 'id', label: 'Order ID' },
-                  { key: 'staffName', label: 'Staff' },
-                  { key: 'tableNumber', label: 'Table' },
-                  { key: 'customerName', label: 'Customer' },
+                  { key: 'staff_id', label: 'Staff' },
+                  { key: 'table_number', label: 'Table' },
+                  { key: 'customer_name', label: 'Customer' },
                   { key: 'status', label: 'Status' },
-                  { key: 'createdAt', label: 'Created' },
+                  { key: 'created_at', label: 'Created' },
                   { key: 'total', label: 'Total' },
-                  { key: 'paymentMethod', label: 'Payment Method' },
+                  { key: 'payment_method', label: 'Payment Method' },
                 ]
               )}
             >Generate Report</Button>
@@ -763,13 +723,13 @@ const Orders = () => {
                 'orders.csv',
                 [
                   { key: 'id', label: 'Order ID' },
-                  { key: 'staffName', label: 'Staff' },
-                  { key: 'tableNumber', label: 'Table' },
-                  { key: 'customerName', label: 'Customer' },
+                  { key: 'staff_id', label: 'Staff' },
+                  { key: 'table_number', label: 'Table' },
+                  { key: 'customer_name', label: 'Customer' },
                   { key: 'status', label: 'Status' },
-                  { key: 'createdAt', label: 'Created' },
+                  { key: 'created_at', label: 'Created' },
                   { key: 'total', label: 'Total' },
-                  { key: 'paymentMethod', label: 'Payment Method' },
+                  { key: 'payment_method', label: 'Payment Method' },
                 ]
               )}
               className="mb-2"
@@ -802,12 +762,17 @@ const Orders = () => {
             address="123 Ice Cream Lane, Accra"
             phone="055-123-4567"
             orderId={lastOrder.id}
-            date={lastOrder.createdAt.toLocaleString()}
-            staff={lastOrder.staffName}
-            table={lastOrder.tableNumber}
-            customer={lastOrder.customerName}
-            paymentMethod={lastOrder.paymentMethod}
-            items={lastOrder.items}
+            date={lastOrder.created_at ? new Date(lastOrder.created_at).toLocaleString() : ''}
+            staff={staff?.name || lastOrder.staff_id}
+            table={lastOrder.table_number}
+            customer={lastOrder.customer_name}
+            paymentMethod={lastOrder.payment_method}
+            items={lastOrder.items.map(item => ({
+              name: item.flavor_name || item.name,
+              quantity: item.scoops || item.quantity,
+              price: item.price,
+              id: item.id || item.flavor_id
+            }))}
             total={lastOrder.total}
             paid={lastOrder.paid}
             change={lastOrder.change}
@@ -854,19 +819,19 @@ const Orders = () => {
               <div><b>Order ID:</b> {orderDetails.id}</div>
               <div><b>Status:</b> {orderDetails.status}</div>
               <div><b>Staff:</b> {orderDetails.staffName}</div>
-              {orderDetails.tableNumber && <div><b>Table:</b> {orderDetails.tableNumber}</div>}
-              {orderDetails.customerName && <div><b>Customer:</b> {orderDetails.customerName}</div>}
-              <div><b>Created:</b> {orderDetails.createdAt?.toLocaleString?.() || String(orderDetails.createdAt)}</div>
+              {orderDetails.table_number && <div><b>Table:</b> {orderDetails.table_number}</div>}
+              {orderDetails.customer_name && <div><b>Customer:</b> {orderDetails.customer_name}</div>}
+              <div><b>Created:</b> {orderDetails.created_at ? new Date(orderDetails.created_at).toLocaleString() : ''}</div>
               <div><b>Items:</b></div>
               <ul style={{marginLeft: 16}}>
                 {orderDetails.items.map(item => (
-                  <li key={item.id || item.flavorId}>
-                    {item.name || item.flavorName} x{item.quantity || item.scoops} (GHS {(item.price || 0).toFixed(2)})
+                  <li key={item.id || item.flavor_id}>
+                    {(item.flavor_name || item.name)} x{item.scoops || item.quantity} (GHS {(item.price || 0).toFixed(2)})
                   </li>
                 ))}
               </ul>
               <div><b>Total:</b> GHS {orderDetails.total?.toFixed(2)}</div>
-              <div><b>Payment:</b> {orderDetails.paymentMethod || 'N/A'}</div>
+              <div><b>Payment:</b> {orderDetails.payment_method || 'N/A'}</div>
             </div>
           )}
           <DialogFooter>
