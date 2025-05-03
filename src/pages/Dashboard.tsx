@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { ChartPie, Package, AlertTriangle, TrendingUp, Clock } from 'lucide-react';
 import { DashboardCard } from '@/components/ui/dashboard-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,11 +15,93 @@ import {
   YAxis 
 } from 'recharts';
 import { DataTable } from '@/components/ui/data-table';
-import { formatDistanceToNow, parseISO } from 'date-fns';
+import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 const Dashboard = () => {
-  const stats = generateDashboardStats();
-  const recentSales = generateSales().slice(0, 5);
+  const [loading, setLoading] = useState(true);
+  const [todaySales, setTodaySales] = useState(0);
+  const [monthlySales, setMonthlySales] = useState<any[]>([]);
+  const [productPerformance, setProductPerformance] = useState<any[]>([]);
+  const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch all delivered orders and their items
+        const { data: orders, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, created_at, payment_method, total, order_items(id, flavor_id, flavor_name, scoops, price)')
+          .eq('status', 'delivered')
+          .order('created_at', { ascending: false });
+        if (ordersError) throw ordersError;
+
+        // Today's Sales
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const todaySalesSum = (orders || [])
+          .filter(order => order.created_at.slice(0, 10) === today)
+          .reduce((sum, order) => sum + (order.total || 0), 0);
+        setTodaySales(todaySalesSum);
+
+        // Monthly Sales (last 6 months)
+        const salesByMonth: Record<string, number> = {};
+        (orders || []).forEach(order => {
+          const d = new Date(order.created_at);
+          const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}`;
+          salesByMonth[key] = (salesByMonth[key] || 0) + (order.total || 0);
+        });
+        const months = [];
+        const now = new Date();
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}`;
+          months.push({
+            month: d.toLocaleString('default', { month: 'short' }),
+            amount: salesByMonth[key] || 0
+          });
+        }
+        setMonthlySales(months);
+
+        // Product Performance (top-selling menu items)
+        const itemSales: Record<string, { name: string, sales: number }> = {};
+        (orders || []).forEach(order => {
+          (order.order_items || []).forEach(item => {
+            const name = item.flavor_name || item.flavor_id || 'N/A';
+            itemSales[name] = itemSales[name] || { name, sales: 0 };
+            itemSales[name].sales += item.scoops || 1;
+          });
+        });
+        const perf = Object.values(itemSales)
+          .sort((a, b) => b.sales - a.sales)
+          .slice(0, 4);
+        setProductPerformance(perf);
+
+        // Recent Sales (last 5 items from delivered orders)
+        const sales = [];
+        (orders || []).forEach(order => {
+          (order.order_items || []).forEach(item => {
+            sales.push({
+              id: item.id,
+              productName: item.flavor_name || item.flavor_id || 'N/A',
+              date: new Date(order.created_at).toLocaleString(),
+              quantity: item.scoops || 1,
+              total: item.price * (item.scoops || 1),
+              paymentMethod: order.payment_method || 'N/A',
+            });
+          });
+        });
+        setRecentSales(sales.slice(0, 5));
+      } catch (err: any) {
+        setError(err.message || 'Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDashboardData();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -33,42 +116,41 @@ const Dashboard = () => {
           })}
         </div>
       </div>
-
+      {error && <div className="text-red-600">{error}</div>}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <DashboardCard
-          title="Total Inventory Value"
-          value={`GHS${stats.totalInventoryValue}`}
-          description="Total value of all ingredients"
-          icon={<Package className="h-4 w-4" />}
-          trend="up"
-          trendValue="8% "
-        />
-        <DashboardCard
-          title="Low Stock Items"
-          value={stats.lowStockItems}
-          description="Ingredients below threshold"
-          icon={<AlertTriangle className="h-4 w-4" />}
-          trend="down"
-          trendValue="2 "
-        />
-        <DashboardCard
-          title="Today's Production"
-          value={`${stats.todayProduction}L`}
-          description="Total gelato produced today"
-          icon={<ChartPie className="h-4 w-4" />}
-          trend="up"
-          trendValue="12% "
-        />
-        <DashboardCard
           title="Today's Sales"
-          value={`GHS${stats.todaySales}`}
+          value={loading ? 'Loading...' : `GHS${todaySales.toFixed(2)}`}
           description="Revenue generated today"
-          icon={<TrendingUp className="h-4 w-4" />}
+          icon={null}
           trend="neutral"
-          trendValue="3% "
+          trendValue=""
+        />
+        <DashboardCard
+          title="Monthly Sales"
+          value={loading ? 'Loading...' : `GHS${monthlySales.reduce((acc, m) => acc + m.amount, 0).toFixed(2)}`}
+          description="Revenue this month"
+          icon={null}
+          trend="neutral"
+          trendValue=""
+        />
+        <DashboardCard
+          title="Top Product"
+          value={loading || productPerformance.length === 0 ? 'Loading...' : productPerformance[0].name}
+          description="Best selling menu item"
+          icon={null}
+          trend="up"
+          trendValue=""
+        />
+        <DashboardCard
+          title="Recent Sales"
+          value={loading ? 'Loading...' : recentSales.length}
+          description="Transactions today"
+          icon={null}
+          trend="neutral"
+          trendValue=""
         />
       </div>
-
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -78,7 +160,7 @@ const Dashboard = () => {
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={stats.monthlySales}
+                data={loading ? [] : monthlySales}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
@@ -102,16 +184,15 @@ const Dashboard = () => {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader>
             <CardTitle>Product Performance</CardTitle>
-            <CardDescription>Sales vs. inventory for top products</CardDescription>
+            <CardDescription>Sales for top products</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={stats.productPerformance}
+                data={loading ? [] : productPerformance}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <XAxis dataKey="name" stroke="#888888" />
@@ -119,76 +200,49 @@ const Dashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <Tooltip />
                 <Bar dataKey="sales" name="Sales" fill="#9b87f5" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="inventory" name="Inventory" fill="#FFDEE2" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>Recent Sales</CardTitle>
-            <CardDescription>Latest transactions</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable 
-              data={recentSales} 
-              columns={[
-                {
-                  header: "Product",
-                  accessorKey: "productName",
-                },
-                {
-                  header: "Date",
-                  accessorKey: "date",
-                },
-                {
-                  header: "Quantity",
-                  accessorKey: "quantity",
-                },
-                {
-                  header: "Total",
-                  cell: (row) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
-                  accessorKey: "total"
-                },
-                {
-                  header: "Payment",
-                  cell: (row) => (
-                    <div className="capitalize">{row.paymentMethod}</div>
-                  ),
-                  accessorKey: "paymentMethod"
-                }
-              ]}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Items Expiring Soon</CardTitle>
-            <CardDescription>Upcoming expirations</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.upcomingExpiry.map((item, i) => (
-                <div key={i} className="flex items-center">
-                  <div className="mr-4 rounded-full p-2 bg-creamello-yellow">
-                    <Clock className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Expires in {item.daysLeft} days
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Sales</CardTitle>
+          <CardDescription>Latest transactions</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable 
+            data={loading ? [] : recentSales}
+            columns={[
+              {
+                header: "Product",
+                accessorKey: "productName",
+              },
+              {
+                header: "Date",
+                accessorKey: "date",
+              },
+              {
+                header: "Quantity",
+                accessorKey: "quantity",
+              },
+              {
+                header: "Total",
+                cell: (row: any) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
+                accessorKey: "total"
+              },
+              {
+                header: "Payment",
+                cell: (row: any) => (
+                  <div className="capitalize">{row.paymentMethod}</div>
+                ),
+                accessorKey: "paymentMethod"
+              }
+            ]}
+          />
+          {loading && <div className="text-center text-muted-foreground py-4">Loading recent sales...</div>}
+        </CardContent>
+      </Card>
     </div>
   );
 };

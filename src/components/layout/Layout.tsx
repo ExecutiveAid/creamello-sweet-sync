@@ -1,7 +1,6 @@
-
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './Sidebar';
-import { Header } from './Header';
+import Header from './Header';
 import { Outlet } from 'react-router-dom';
 
 export const Layout = () => {
