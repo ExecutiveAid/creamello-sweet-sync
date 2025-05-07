@@ -20,123 +20,79 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { ProductionBatch, Recipe, generateProductionBatches, generateRecipes } from '@/data/mockData';
 import { Plus, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
-import { useIngredientInventory } from '@/context/IngredientInventoryContext';
+import { format, parseISO } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 const Production = () => {
-  const [batches, setBatches] = useState<ProductionBatch[]>([]);
-  const [filteredBatches, setFilteredBatches] = useState<ProductionBatch[]>([]);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [batches, setBatches] = useState<any[]>([]);
+  const [filteredBatches, setFilteredBatches] = useState<any[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  const [newBatch, setNewBatch] = useState<Partial<ProductionBatch>>({
-    recipeId: '',
-    recipeName: '',
-    date: format(new Date(), 'yyyy-MM-dd'),
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  // For dialog (UI only, not DB insert yet)
+  const [newBatch, setNewBatch] = useState({
+    product_name: '',
+    category: '',
     quantity: 0,
-    producedBy: '',
-    notes: '',
+    unit: '',
     status: 'planned',
+    production_date: format(new Date(), 'yyyy-MM-dd'),
+    notes: '',
   });
 
-  const { deductIngredient } = useIngredientInventory();
-
-  // Load mock data
   useEffect(() => {
-    const batchData = generateProductionBatches();
-    const recipeData = generateRecipes();
-    setBatches(batchData);
-    setFilteredBatches(batchData);
-    setRecipes(recipeData);
+    const fetchBatches = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('production_batches')
+          .select('*')
+          .order('production_date', { ascending: false });
+        if (fetchError) throw fetchError;
+        setBatches(data || []);
+        setFilteredBatches(data || []);
+      } catch (err: any) {
+        setError(err.message || 'Failed to load production batches');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchBatches();
   }, []);
 
   // Handle search
   useEffect(() => {
+    let filtered = batches;
     if (searchQuery) {
-      const filtered = batches.filter(batch => 
-        batch.recipeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        batch.producedBy.toLowerCase().includes(searchQuery.toLowerCase())
+      filtered = filtered.filter(batch =>
+        batch.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        batch.category.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      setFilteredBatches(filtered);
-    } else {
-      setFilteredBatches(batches);
     }
+    setFilteredBatches(filtered);
   }, [searchQuery, batches]);
 
-  const handleRecipeChange = (recipeId: string) => {
-    const selectedRecipe = recipes.find(recipe => recipe.id === recipeId);
-    if (selectedRecipe) {
-      setNewBatch({
-        ...newBatch,
-        recipeId,
-        recipeName: selectedRecipe.name,
-        quantity: selectedRecipe.outputQuantity,
-      });
+  const handleRefresh = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('production_batches')
+        .select('*')
+        .order('production_date', { ascending: false });
+      if (fetchError) throw fetchError;
+      setBatches(data || []);
+      setFilteredBatches(data || []);
+      toast({ title: 'Production Refreshed', description: 'Production data has been refreshed.' });
+    } catch (err: any) {
+      setError(err.message || 'Failed to refresh production batches');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleAddBatch = () => {
-    if (!newBatch.recipeId || !newBatch.date || !newBatch.producedBy) {
-      toast({
-        title: "Missing Fields",
-        description: "Please fill in all required fields.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const newId = (Math.max(...batches.map(b => parseInt(b.id))) + 1).toString();
-    const batchToAdd: ProductionBatch = {
-      id: newId,
-      recipeId: newBatch.recipeId!,
-      recipeName: newBatch.recipeName!,
-      date: newBatch.date!,
-      quantity: newBatch.quantity!,
-      producedBy: newBatch.producedBy!,
-      notes: newBatch.notes || '',
-      status: newBatch.status as 'completed' | 'in-progress' | 'planned',
-    };
-
-    setBatches([...batches, batchToAdd]);
-    setDialogOpen(false);
-    toast({
-      title: "Production Batch Added",
-      description: `${batchToAdd.recipeName} batch has been added to production schedule.`
-    });
-
-    // Reset form
-    setNewBatch({
-      recipeId: '',
-      recipeName: '',
-      date: format(new Date(), 'yyyy-MM-dd'),
-      quantity: 0,
-      producedBy: '',
-      notes: '',
-      status: 'planned',
-    });
-
-    if (batchToAdd.status === 'completed') {
-      const recipe = recipes.find(r => r.id === batchToAdd.recipeId);
-      if (recipe) {
-        recipe.ingredients.forEach(ing => {
-          deductIngredient(ing.ingredientId, ing.quantity * batchToAdd.quantity / recipe.outputQuantity);
-        });
-      }
-    }
-  };
-
-  const handleRefresh = () => {
-    const data = generateProductionBatches();
-    setBatches(data);
-    setFilteredBatches(data);
-    toast({
-      title: "Data Refreshed",
-      description: "Production data has been refreshed."
-    });
   };
 
   const getStatusBadge = (status: string) => {
@@ -157,7 +113,7 @@ const Production = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Production</h1>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={handleRefresh}>
+          <Button variant="outline" size="icon" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
           </Button>
           <Button onClick={() => setDialogOpen(true)}>
@@ -165,31 +121,63 @@ const Production = () => {
           </Button>
         </div>
       </div>
-
+      {error && <div className="text-red-600">{error}</div>}
       <DataTable
-        data={filteredBatches}
+        data={loading ? [] : filteredBatches}
         columns={[
           {
-            header: "Recipe",
-            accessorKey: "recipeName",
+            header: "Product",
+            accessorKey: "product_name",
+          },
+          {
+            header: "Category",
+            accessorKey: "category",
           },
           {
             header: "Date",
-            accessorKey: "date",
+            accessorKey: "production_date",
+            cell: (row: any) => row.production_date ? format(parseISO(row.production_date), 'MMM dd, yyyy') : ''
           },
           {
             header: "Quantity",
-            cell: (row) => <div>{row.quantity} liters</div>,
+            cell: (row: any) => <div>{row.quantity} {row.unit}</div>,
             accessorKey: "quantity"
           },
           {
-            header: "Produced By",
-            accessorKey: "producedBy",
+            header: "Status",
+            cell: (row: any) => getStatusBadge(row.status),
+            accessorKey: "status"
           },
           {
-            header: "Status",
-            cell: (row) => getStatusBadge(row.status),
-            accessorKey: "status"
+            header: "Actions",
+            accessorKey: "actions",
+            cell: (row: any) => (
+              <Select
+                value={row.status}
+                onValueChange={async (value) => {
+                  const { error } = await supabase
+                    .from('production_batches')
+                    .update({ status: value })
+                    .eq('id', row.id);
+                  if (!error) {
+                    setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value } : b));
+                    setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value } : b));
+                    toast({ title: 'Status Updated', description: `Batch status changed to ${value}` });
+                  } else {
+                    toast({ title: 'Error', description: error.message, variant: 'destructive' });
+                  }
+                }}
+              >
+                <SelectTrigger className="w-[140px] h-8">
+                  <SelectValue placeholder="Update Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planned">Planned</SelectItem>
+                  <SelectItem value="in-progress">In Progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            ),
           },
           {
             header: "Notes",
@@ -200,7 +188,6 @@ const Production = () => {
         searchable={true}
         onSearch={setSearchQuery}
       />
-
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -211,59 +198,59 @@ const Production = () => {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="recipe" className="text-right">
-                Recipe *
+              <Label htmlFor="product_name" className="text-right">
+                Product Name *
               </Label>
-              <div className="col-span-3">
-                <Select 
-                  value={newBatch.recipeId} 
-                  onValueChange={handleRecipeChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a recipe" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recipes.map(recipe => (
-                      <SelectItem key={recipe.id} value={recipe.id}>
-                        {recipe.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Input
+                id="product_name"
+                value={newBatch.product_name}
+                onChange={(e) => setNewBatch({ ...newBatch, product_name: e.target.value })}
+                className="col-span-3"
+              />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="date" className="text-right">
+              <Label htmlFor="category" className="text-right">
+                Category *
+              </Label>
+              <Input
+                id="category"
+                value={newBatch.category}
+                onChange={(e) => setNewBatch({ ...newBatch, category: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="production_date" className="text-right">
                 Date *
               </Label>
               <Input
-                id="date"
+                id="production_date"
                 type="date"
-                value={newBatch.date}
-                onChange={(e) => setNewBatch({...newBatch, date: e.target.value})}
+                value={newBatch.production_date}
+                onChange={(e) => setNewBatch({ ...newBatch, production_date: e.target.value })}
                 className="col-span-3"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="quantity" className="text-right">
-                Quantity (L)
+                Quantity *
               </Label>
               <Input
                 id="quantity"
                 type="number"
-                value={newBatch.quantity || ''}
-                onChange={(e) => setNewBatch({...newBatch, quantity: parseFloat(e.target.value)})}
+                value={newBatch.quantity}
+                onChange={(e) => setNewBatch({ ...newBatch, quantity: parseFloat(e.target.value) })}
                 className="col-span-3"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="producer" className="text-right">
-                Produced By *
+              <Label htmlFor="unit" className="text-right">
+                Unit *
               </Label>
               <Input
-                id="producer"
-                value={newBatch.producedBy || ''}
-                onChange={(e) => setNewBatch({...newBatch, producedBy: e.target.value})}
+                id="unit"
+                value={newBatch.unit}
+                onChange={(e) => setNewBatch({ ...newBatch, unit: e.target.value })}
                 className="col-span-3"
               />
             </div>
@@ -271,9 +258,9 @@ const Production = () => {
               <Label htmlFor="status" className="text-right">
                 Status
               </Label>
-              <Select 
-                value={newBatch.status} 
-                onValueChange={(value) => setNewBatch({...newBatch, status: value as 'completed' | 'in-progress' | 'planned'})}
+              <Select
+                value={newBatch.status}
+                onValueChange={(value) => setNewBatch({ ...newBatch, status: value })}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select status" />
@@ -291,8 +278,8 @@ const Production = () => {
               </Label>
               <Textarea
                 id="notes"
-                value={newBatch.notes || ''}
-                onChange={(e) => setNewBatch({...newBatch, notes: e.target.value})}
+                value={newBatch.notes}
+                onChange={(e) => setNewBatch({ ...newBatch, notes: e.target.value })}
                 className="col-span-3"
                 rows={3}
               />
@@ -300,7 +287,66 @@ const Production = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddBatch}>Add Batch</Button>
+            <Button
+              onClick={async () => {
+                // Validate required fields
+                if (
+                  !newBatch.product_name ||
+                  !newBatch.category ||
+                  !newBatch.production_date ||
+                  !newBatch.quantity ||
+                  !newBatch.unit
+                ) {
+                  toast({
+                    title: "Missing Fields",
+                    description: "Please fill in all required fields.",
+                    variant: "destructive"
+                  });
+                  return;
+                }
+                setLoading(true);
+                try {
+                  const { error } = await supabase
+                    .from('production_batches')
+                    .insert([newBatch]);
+                  if (error) throw error;
+                  toast({
+                    title: "Production Batch Added",
+                    description: `${newBatch.product_name} batch has been added to production schedule.`
+                  });
+                  setDialogOpen(false);
+                  // Refresh the list
+                  const { data, error: fetchError } = await supabase
+                    .from('production_batches')
+                    .select('*')
+                    .order('production_date', { ascending: false });
+                  if (fetchError) throw fetchError;
+                  setBatches(data || []);
+                  setFilteredBatches(data || []);
+                  // Reset form
+                  setNewBatch({
+                    product_name: '',
+                    category: '',
+                    quantity: 0,
+                    unit: '',
+                    status: 'planned',
+                    production_date: format(new Date(), 'yyyy-MM-dd'),
+                    notes: '',
+                  });
+                } catch (err: any) {
+                  toast({
+                    title: "Error",
+                    description: err.message || "Failed to add production batch.",
+                    variant: "destructive"
+                  });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+            >
+              Add Batch
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

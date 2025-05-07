@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,6 +25,16 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/context/AuthContext';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const Settings = () => {
   const [shopName, setShopName] = useState('Creamello');
@@ -36,19 +46,128 @@ const Settings = () => {
     salesReport: true,
     productionReminders: false
   });
+  const [settingsId, setSettingsId] = useState<string | null>(null);
+  const [theme, setTheme] = useState('light');
+  const [dateFormat, setDateFormat] = useState('MM/DD/YYYY');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const { staff: currentStaff } = useAuth();
+  const isAdmin = currentStaff?.role === 'admin';
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [newStaff, setNewStaff] = useState({ name: '', pin: '', role: 'staff' });
 
-  const handleSaveProfile = () => {
-    toast({
-      title: "Profile Updated",
-      description: "Your profile settings have been saved."
-    });
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data, error } = await supabase.from('settings').select('*').limit(1).single();
+      if (data) {
+        setSettingsId(data.id);
+        setShopName(data.shop_name || '');
+        setEmail(data.email || '');
+        setCurrency(data.currency || 'GHS');
+        setNotifications(data.notifications || {
+          lowStock: true,
+          expiryAlert: true,
+          salesReport: true,
+          productionReminders: false
+        });
+        setTheme(data.theme || 'light');
+        setDateFormat(data.date_format || 'MM/DD/YYYY');
+        setAutoRefresh(data.auto_refresh !== undefined ? data.auto_refresh : true);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchStaff = async () => {
+        const { data } = await supabase.from('staff').select('id, name, role, pin');
+        setStaffList(data || []);
+      };
+      fetchStaff();
+    }
+  }, [isAdmin]);
+
+  const saveSettings = async (overrides = {}) => {
+    const upsertData = {
+      id: settingsId || undefined,
+      shop_name: shopName,
+      email,
+      currency,
+      notifications,
+      theme,
+      date_format: dateFormat,
+      auto_refresh: autoRefresh,
+      ...overrides,
+    };
+    const { error } = await supabase.from('settings').upsert(upsertData, { onConflict: 'id' });
+    return error;
   };
 
-  const handleSaveNotifications = () => {
-    toast({
-      title: "Notification Preferences Updated",
-      description: "Your notification settings have been saved."
-    });
+  const handleSaveProfile = async () => {
+    const error = await saveSettings();
+    if (!error) {
+      toast({
+        title: 'Profile Updated',
+        description: 'Your profile settings have been saved.'
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSaveNotifications = async () => {
+    const error = await saveSettings();
+    if (!error) {
+      toast({
+        title: 'Notification Preferences Updated',
+        description: 'Your notification settings have been saved.'
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSaveSystem = async () => {
+    const error = await saveSettings();
+    if (!error) {
+      toast({
+        title: 'System Settings Updated',
+        description: 'Your system settings have been saved.'
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleAddStaff = async () => {
+    if (!newStaff.name || !newStaff.pin || !newStaff.role) {
+      toast({ title: 'Missing Fields', description: 'Please fill all fields.', variant: 'destructive' });
+      return;
+    }
+    const { error } = await supabase.from('staff').insert([{ name: newStaff.name, pin: newStaff.pin, role: newStaff.role }]);
+    if (!error) {
+      toast({ title: 'Staff Added', description: `${newStaff.name} added as ${newStaff.role}.` });
+      setShowAddStaff(false);
+      setNewStaff({ name: '', pin: '', role: 'staff' });
+      // Refresh staff list
+      const { data } = await supabase.from('staff').select('id, name, role, pin');
+      setStaffList(data || []);
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
   };
 
   return (
@@ -58,10 +177,11 @@ const Settings = () => {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full md:w-[400px] grid-cols-3">
+        <TabsList className="grid w-full md:w-[400px] grid-cols-4">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="system">System</TabsTrigger>
+          {isAdmin && <TabsTrigger value="staff">Staff</TabsTrigger>}
         </TabsList>
         
         <TabsContent value="profile">
@@ -195,7 +315,7 @@ const Settings = () => {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="theme">Theme</Label>
-                <Select defaultValue="light">
+                <Select value={theme} onValueChange={v => setTheme(v)}>
                   <SelectTrigger id="theme">
                     <SelectValue placeholder="Select a theme" />
                   </SelectTrigger>
@@ -208,7 +328,7 @@ const Settings = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="dateFormat">Date Format</Label>
-                <Select defaultValue="MM/DD/YYYY">
+                <Select value={dateFormat} onValueChange={v => setDateFormat(v)}>
                   <SelectTrigger id="dateFormat">
                     <SelectValue placeholder="Select date format" />
                   </SelectTrigger>
@@ -226,14 +346,85 @@ const Settings = () => {
                     Automatically refresh dashboard data every 5 minutes
                   </p>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
               </div>
             </CardContent>
             <CardFooter>
-              <Button>Save Settings</Button>
+              <Button onClick={handleSaveSystem}>Save Settings</Button>
             </CardFooter>
           </Card>
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="staff">
+            <Card>
+              <CardHeader>
+                <CardTitle>Staff Management</CardTitle>
+                <CardDescription>View, add, and manage staff accounts and roles.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex justify-between items-center mb-4">
+                  <div className="text-lg font-semibold">All Staff</div>
+                  <Button onClick={() => setShowAddStaff(true)}>+ Add Staff</Button>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-muted">
+                  <table className="min-w-full divide-y divide-muted bg-white">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium">Name</th>
+                        <th className="px-4 py-2 text-left font-medium">Role</th>
+                        <th className="px-4 py-2 text-left font-medium">PIN</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staffList.map((s) => (
+                        <tr key={s.id} className="even:bg-muted/50">
+                          <td className="px-4 py-2">{s.name}</td>
+                          <td className="px-4 py-2 capitalize">{s.role}</td>
+                          <td className="px-4 py-2 font-mono tracking-wider">{s.pin}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+            <Dialog open={showAddStaff} onOpenChange={setShowAddStaff}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add New Staff</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Name</Label>
+                    <Input value={newStaff.name} onChange={e => setNewStaff({ ...newStaff, name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>PIN</Label>
+                    <Input value={newStaff.pin} onChange={e => setNewStaff({ ...newStaff, pin: e.target.value })} type="password" />
+                  </div>
+                  <div>
+                    <Label>Role</Label>
+                    <Select value={newStaff.role} onValueChange={v => setNewStaff({ ...newStaff, role: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="staff">Staff</SelectItem>
+                        <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAddStaff(false)}>Cancel</Button>
+                  <Button onClick={handleAddStaff}>Add Staff</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

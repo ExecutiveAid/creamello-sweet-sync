@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -10,6 +9,7 @@ import {
   SidebarTrigger
 } from '@/components/ui/sidebar';
 import { Package, Database, ChartPie, Settings, ShoppingCart, ClipboardList, IceCreamCone } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 type NavItemProps = {
   to: string;
@@ -41,6 +41,9 @@ const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false 
 };
 
 export const AppSidebar = () => {
+  const { staff } = useAuth();
+  const role = staff?.role;
+  const isAdminOrManager = role === 'admin' || role === 'manager';
   return (
     <Sidebar>
       <SidebarHeader className="px-6 py-5">
@@ -54,13 +57,15 @@ export const AppSidebar = () => {
       
       <SidebarContent className="px-4 py-2">
         <div className="space-y-1">
-          <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
-          <NavItem to="/ingredients" icon={Database}>Ingredients</NavItem>
-          <NavItem to="/production" icon={ClipboardList}>Production</NavItem>
-          <NavItem to="/inventory" icon={Package}>Inventory</NavItem>
+          {(isAdminOrManager || role === 'staff') && (
+            <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
+          )}
+          {isAdminOrManager && <NavItem to="/ingredients" icon={Database}>Ingredients</NavItem>}
+          {isAdminOrManager && <NavItem to="/production" icon={ClipboardList}>Production</NavItem>}
+          {isAdminOrManager && <NavItem to="/inventory" icon={Package}>Inventory</NavItem>}
           <NavItem to="/orders" icon={IceCreamCone} highlighted={true}>Orders</NavItem>
           <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
-          <NavItem to="/settings" icon={Settings}>Settings</NavItem>
+          {isAdminOrManager && <NavItem to="/settings" icon={Settings}>Settings</NavItem>}
         </div>
       </SidebarContent>
       
