@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Staff {
@@ -20,6 +20,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Restore staff from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('creamello_staff');
+    if (stored) {
+      try {
+        setStaff(JSON.parse(stored));
+      } catch {}
+    }
+  }, []);
+
   const loginStaff = async (name: string, pin: string) => {
     setLoading(true);
     const { data, error } = await supabase
@@ -32,12 +42,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (error || !data) {
       return { error: 'Invalid name or PIN' };
     }
-    setStaff({ id: data.id, name: data.name, role: data.role });
+    const staffObj = { id: data.id, name: data.name, role: data.role };
+    setStaff(staffObj);
+    localStorage.setItem('creamello_staff', JSON.stringify(staffObj));
     return {};
   };
 
   const logout = () => {
     setStaff(null);
+    localStorage.removeItem('creamello_staff');
   };
 
   return (

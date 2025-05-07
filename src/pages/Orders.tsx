@@ -112,10 +112,10 @@ const iceCreamFlavors: IceCreamFlavor[] = [
 
 // Sample staff data
 const staffMembers: Staff[] = [
-  { id: "staff1", name: "Sarah Johnson", role: "Waitress" },
-  { id: "staff2", name: "Michael Lee", role: "Waitress" },
-  { id: "staff3", name: "Anita Patel", role: "Waitress" },
-  { id: "staff4", name: "David Osei", role: "Manager" },
+  { id: "staff1", name: "Sarah Johnson", role: "staff" },
+  { id: "staff2", name: "Michael Lee", role: "staff" },
+  { id: "staff3", name: "Anita Patel", role: "staff" },
+  { id: "staff4", name: "David Osei", role: "manager" },
 ];
 
 // 1. Define the new menu structure
@@ -239,6 +239,8 @@ const Orders = () => {
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(true);
 
+  const [staffList, setStaffList] = useState<{ [id: string]: string }>({});
+
   useEffect(() => {
     const fetchMenuItems = async () => {
       setLoadingMenu(true);
@@ -253,6 +255,20 @@ const Orders = () => {
       setLoadingMenu(false);
     };
     fetchMenuItems();
+  }, []);
+
+  useEffect(() => {
+    const fetchStaff = async () => {
+      const { data, error } = await supabase.from('staff').select('id, name');
+      if (data) {
+        const map: { [id: string]: string } = {};
+        data.forEach((s: { id: string; name: string }) => {
+          map[s.id] = s.name;
+        });
+        setStaffList(map);
+      }
+    };
+    fetchStaff();
   }, []);
 
   // Cart logic
@@ -380,7 +396,8 @@ const Orders = () => {
     },
     {
       header: "Staff",
-      accessorKey: "staffName" as keyof Order
+      cell: (row: Order) => staffList[row.staff_id] || row.staff_id,
+      accessorKey: "staff_id"
     },
     {
       header: "Table/Customer",
@@ -419,30 +436,19 @@ const Orders = () => {
       cell: (row: Order) => (
         <div className="flex space-x-2">
           {row.status !== 'delivered' && row.status !== 'cancelled' && (
-            <Select 
-              onValueChange={(value) => updateOrderStatus(row.id, value as Order['status'])}
-              defaultValue={row.status}
+            <Button
+              size="sm"
+              className="bg-green-500 hover:bg-green-600 text-white"
+              onClick={e => { e.stopPropagation(); updateOrderStatus(row.id, 'delivered'); }}
             >
-              <SelectTrigger className="w-[120px] h-8">
-                <SelectValue placeholder="Update" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectLabel>Change Status</SelectLabel>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="preparing">Preparing</SelectItem>
-                  <SelectItem value="ready">Ready</SelectItem>
-                  <SelectItem value="delivered">Delivered</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+              Delivered
+            </Button>
           )}
           <Button
             variant="destructive"
             size="sm"
             disabled={row.status === 'delivered' || row.status === 'cancelled'}
-            onClick={() => handleCancelOrder(row)}
+            onClick={e => { e.stopPropagation(); handleCancelOrder(row); }}
           >
             Cancel
           </Button>
@@ -640,18 +646,6 @@ const Orders = () => {
               className={`px-3 py-1 cursor-pointer ${!statusFilter ? 'bg-creamello-purple text-white' : 'bg-secondary'}`}
             >
               All Orders
-            </Badge>
-            <Badge 
-              onClick={() => setStatusFilter('pending')}
-              className={`px-3 py-1 cursor-pointer ${statusFilter === 'pending' ? 'bg-yellow-500 text-white' : 'bg-secondary'}`}
-            >
-              Pending
-            </Badge>
-            <Badge 
-              onClick={() => setStatusFilter('preparing')}
-              className={`px-3 py-1 cursor-pointer ${statusFilter === 'preparing' ? 'bg-blue-500 text-white' : 'bg-secondary'}`}
-            >
-              Preparing
             </Badge>
             <Badge 
               onClick={() => setStatusFilter('ready')}
