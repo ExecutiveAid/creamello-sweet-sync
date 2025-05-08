@@ -35,6 +35,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Pencil, Trash2, Plus } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+
+// Type for menu items
+interface MenuItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  description: string | null;
+}
+
+// List of menu categories
+const MENU_CATEGORIES = [
+  'Flavors',
+  'Toppings',
+  'Waffles & Pancakes',
+  'Sundaes',
+  'Milkshakes',
+  'Juice',
+];
 
 const Settings = () => {
   const [shopName, setShopName] = useState('Creamello');
@@ -55,6 +77,21 @@ const Settings = () => {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: '', pin: '', role: 'staff' });
+  
+  // Menu items state
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [showAddMenuItem, setShowAddMenuItem] = useState(false);
+  const [showEditMenuItem, setShowEditMenuItem] = useState(false);
+  const [currentMenuItem, setCurrentMenuItem] = useState<MenuItem | null>(null);
+  const [newMenuItem, setNewMenuItem] = useState<Partial<MenuItem>>({
+    name: '',
+    category: 'Flavors',
+    price: 0,
+    description: '',
+  });
+
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -85,6 +122,17 @@ const Settings = () => {
         setStaffList(data || []);
       };
       fetchStaff();
+      
+      // Fetch menu items
+      const fetchMenuItems = async () => {
+        const { data, error } = await supabase.from('menu_items').select('*');
+        if (error) {
+          toast({ title: 'Error loading menu items', description: error.message, variant: 'destructive' });
+        } else {
+          setMenuItems(data || []);
+        }
+      };
+      fetchMenuItems();
     }
   }, [isAdmin]);
 
@@ -169,6 +217,89 @@ const Settings = () => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
   };
+  
+  // Menu Item handlers
+  const handleAddMenuItem = async () => {
+    if (!newMenuItem.name || !newMenuItem.category || newMenuItem.price === undefined) {
+      toast({ title: 'Missing Fields', description: 'Please fill all required fields.', variant: 'destructive' });
+      return;
+    }
+    
+    // Create ID based on category and name
+    const categoryPrefix = newMenuItem.category?.toLowerCase().split(' ')[0] || 'item';
+    const id = `${categoryPrefix}-${newMenuItem.name?.toLowerCase().replace(/\s+/g, '')}`;
+    
+    const menuItem = {
+      id,
+      name: newMenuItem.name,
+      category: newMenuItem.category,
+      price: Number(newMenuItem.price),
+      description: newMenuItem.description || null
+    };
+    
+    const { error } = await supabase.from('menu_items').insert([menuItem]);
+    
+    if (!error) {
+      toast({ title: 'Menu Item Added', description: `${menuItem.name} added to ${menuItem.category}.` });
+      setShowAddMenuItem(false);
+      setNewMenuItem({ name: '', category: 'Flavors', price: 0, description: '' });
+      
+      // Refresh menu items
+      const { data } = await supabase.from('menu_items').select('*');
+      setMenuItems(data || []);
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+  
+  const handleEditMenuItem = async () => {
+    if (!currentMenuItem) return;
+    
+    const { error } = await supabase
+      .from('menu_items')
+      .update({
+        name: currentMenuItem.name,
+        category: currentMenuItem.category,
+        price: Number(currentMenuItem.price),
+        description: currentMenuItem.description
+      })
+      .eq('id', currentMenuItem.id);
+    
+    if (!error) {
+      toast({ title: 'Menu Item Updated', description: `${currentMenuItem.name} has been updated.` });
+      setShowEditMenuItem(false);
+      setCurrentMenuItem(null);
+      
+      // Refresh menu items
+      const { data } = await supabase.from('menu_items').select('*');
+      setMenuItems(data || []);
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+  
+  const handleDeleteMenuItem = async (id: string) => {
+    setItemToDelete(id);
+    setShowDeleteDialog(true);
+  };
+  
+  const confirmDeleteMenuItem = async () => {
+    if (!itemToDelete) return;
+    
+    const { error } = await supabase.from('menu_items').delete().eq('id', itemToDelete);
+    
+    if (!error) {
+      toast({ title: 'Menu Item Deleted', description: 'The menu item has been removed.' });
+      
+      // Refresh menu items
+      const { data } = await supabase.from('menu_items').select('*');
+      setMenuItems(data || []);
+      setShowDeleteDialog(false);
+      setItemToDelete(null);
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -177,11 +308,12 @@ const Settings = () => {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full md:w-[400px] grid-cols-4">
+        <TabsList className="grid w-full md:w-[600px] grid-cols-5">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="system">System</TabsTrigger>
           {isAdmin && <TabsTrigger value="staff">Staff</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="menu">Menu Items</TabsTrigger>}
         </TabsList>
         
         <TabsContent value="profile">
@@ -420,6 +552,204 @@ const Settings = () => {
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowAddStaff(false)}>Cancel</Button>
                   <Button onClick={handleAddStaff}>Add Staff</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+        )}
+        
+        {isAdmin && (
+          <TabsContent value="menu">
+            <Card>
+              <CardHeader>
+                <CardTitle>Menu Items Management</CardTitle>
+                <CardDescription>View, add, edit, and remove menu items available for ordering.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex justify-between items-center mb-4">
+                  <div className="text-lg font-semibold">All Menu Items</div>
+                  <Button onClick={() => setShowAddMenuItem(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Add Menu Item
+                  </Button>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-muted">
+                  <table className="min-w-full divide-y divide-muted bg-white">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium">Name</th>
+                        <th className="px-4 py-2 text-left font-medium">Category</th>
+                        <th className="px-4 py-2 text-left font-medium">Price</th>
+                        <th className="px-4 py-2 text-left font-medium">Description</th>
+                        <th className="px-4 py-2 text-right font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {menuItems.map((item) => (
+                        <tr key={item.id} className="even:bg-muted/50">
+                          <td className="px-4 py-2">{item.name}</td>
+                          <td className="px-4 py-2">{item.category}</td>
+                          <td className="px-4 py-2">{currency} {item.price.toFixed(2)}</td>
+                          <td className="px-4 py-2 max-w-xs truncate">{item.description || '-'}</td>
+                          <td className="px-4 py-2 text-right">
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => {
+                                setCurrentMenuItem(item);
+                                setShowEditMenuItem(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => handleDeleteMenuItem(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Add Menu Item Dialog */}
+            <Dialog open={showAddMenuItem} onOpenChange={setShowAddMenuItem}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add New Menu Item</DialogTitle>
+                  <DialogDescription>
+                    Add a new item to your menu for ordering.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="item-name">Name</Label>
+                    <Input 
+                      id="item-name"
+                      value={newMenuItem.name} 
+                      onChange={e => setNewMenuItem({ ...newMenuItem, name: e.target.value })} 
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="item-category">Category</Label>
+                    <Select 
+                      value={newMenuItem.category} 
+                      onValueChange={v => setNewMenuItem({ ...newMenuItem, category: v })}
+                    >
+                      <SelectTrigger id="item-category">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MENU_CATEGORIES.map(category => (
+                          <SelectItem key={category} value={category}>{category}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="item-price">Price</Label>
+                    <Input 
+                      id="item-price"
+                      type="number" 
+                      min="0" 
+                      step="0.01"
+                      value={newMenuItem.price} 
+                      onChange={e => setNewMenuItem({ ...newMenuItem, price: parseFloat(e.target.value) })} 
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="item-description">Description (optional)</Label>
+                    <Textarea 
+                      id="item-description"
+                      value={newMenuItem.description || ''} 
+                      onChange={e => setNewMenuItem({ ...newMenuItem, description: e.target.value })} 
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAddMenuItem(false)}>Cancel</Button>
+                  <Button onClick={handleAddMenuItem}>Add Item</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            {/* Edit Menu Item Dialog */}
+            <Dialog open={showEditMenuItem} onOpenChange={setShowEditMenuItem}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Menu Item</DialogTitle>
+                </DialogHeader>
+                {currentMenuItem && (
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="edit-item-name">Name</Label>
+                      <Input 
+                        id="edit-item-name"
+                        value={currentMenuItem.name} 
+                        onChange={e => setCurrentMenuItem({ ...currentMenuItem, name: e.target.value })} 
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-item-category">Category</Label>
+                      <Select 
+                        value={currentMenuItem.category} 
+                        onValueChange={v => setCurrentMenuItem({ ...currentMenuItem, category: v })}
+                      >
+                        <SelectTrigger id="edit-item-category">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {MENU_CATEGORIES.map(category => (
+                            <SelectItem key={category} value={category}>{category}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-item-price">Price</Label>
+                      <Input 
+                        id="edit-item-price"
+                        type="number" 
+                        min="0" 
+                        step="0.01"
+                        value={currentMenuItem.price} 
+                        onChange={e => setCurrentMenuItem({ ...currentMenuItem, price: parseFloat(e.target.value) })} 
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-item-description">Description (optional)</Label>
+                      <Textarea 
+                        id="edit-item-description"
+                        value={currentMenuItem.description || ''} 
+                        onChange={e => setCurrentMenuItem({ ...currentMenuItem, description: e.target.value })} 
+                      />
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowEditMenuItem(false)}>Cancel</Button>
+                  <Button onClick={handleEditMenuItem}>Save Changes</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            {/* Delete Menu Item Dialog */}
+            <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Delete Menu Item</DialogTitle>
+                  <DialogDescription>
+                    Are you sure you want to delete this menu item? This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+                  <Button variant="destructive" onClick={confirmDeleteMenuItem}>Delete</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

@@ -25,9 +25,21 @@ import { toast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 
+// Type definition for production batch (matching Supabase schema)
+interface ProductionBatch {
+  id?: string;
+  product_name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  status: 'completed' | 'in-progress' | 'planned';
+  production_date: string;
+  notes?: string;
+}
+
 const Production = () => {
-  const [batches, setBatches] = useState<any[]>([]);
-  const [filteredBatches, setFilteredBatches] = useState<any[]>([]);
+  const [batches, setBatches] = useState<ProductionBatch[]>([]);
+  const [filteredBatches, setFilteredBatches] = useState<ProductionBatch[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -136,22 +148,21 @@ const Production = () => {
           {
             header: "Date",
             accessorKey: "production_date",
-            cell: (row: any) => row.production_date ? format(parseISO(row.production_date), 'MMM dd, yyyy') : ''
+            cell: (row: ProductionBatch) => row.production_date ? format(parseISO(row.production_date), 'MMM dd, yyyy') : ''
           },
           {
             header: "Quantity",
-            cell: (row: any) => <div>{row.quantity} {row.unit}</div>,
+            cell: (row: ProductionBatch) => <div>{row.quantity} {row.unit}</div>,
             accessorKey: "quantity"
           },
           {
             header: "Status",
-            cell: (row: any) => getStatusBadge(row.status),
+            cell: (row: ProductionBatch) => getStatusBadge(row.status),
             accessorKey: "status"
           },
           {
             header: "Actions",
-            accessorKey: "actions",
-            cell: (row: any) => (
+            cell: (row: ProductionBatch) => (
               <Select
                 value={row.status}
                 onValueChange={async (value) => {
@@ -160,8 +171,8 @@ const Production = () => {
                     .update({ status: value })
                     .eq('id', row.id);
                   if (!error) {
-                    setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value } : b));
-                    setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value } : b));
+                    setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
+                    setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
                     toast({ title: 'Status Updated', description: `Batch status changed to ${value}` });
                   } else {
                     toast({ title: 'Error', description: error.message, variant: 'destructive' });

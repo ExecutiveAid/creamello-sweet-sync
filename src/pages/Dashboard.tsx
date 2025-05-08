@@ -18,12 +18,32 @@ import { DataTable } from '@/components/ui/data-table';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 
+// Type definitions for dashboard data
+interface MonthlySalesRow {
+  month: string;
+  amount: number;
+}
+
+interface ProductPerformanceRow {
+  name: string;
+  sales: number;
+}
+
+interface RecentSaleRow {
+  id: string;
+  productName: string;
+  date: string;
+  quantity: number;
+  total: number;
+  paymentMethod: string;
+}
+
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [todaySales, setTodaySales] = useState(0);
-  const [monthlySales, setMonthlySales] = useState<any[]>([]);
-  const [productPerformance, setProductPerformance] = useState<any[]>([]);
-  const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [monthlySales, setMonthlySales] = useState<MonthlySalesRow[]>([]);
+  const [productPerformance, setProductPerformance] = useState<ProductPerformanceRow[]>([]);
+  const [recentSales, setRecentSales] = useState<RecentSaleRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -228,12 +248,12 @@ const Dashboard = () => {
               },
               {
                 header: "Total",
-                cell: (row: any) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
+                cell: (row: RecentSaleRow) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
                 accessorKey: "total"
               },
               {
                 header: "Payment",
-                cell: (row: any) => (
+                cell: (row: RecentSaleRow) => (
                   <div className="capitalize">{row.paymentMethod}</div>
                 ),
                 accessorKey: "paymentMethod"

@@ -8,8 +8,9 @@ import {
   SidebarHeader,
   SidebarTrigger
 } from '@/components/ui/sidebar';
-import { Package, Database, ChartPie, Settings, ShoppingCart, ClipboardList, IceCreamCone } from 'lucide-react';
+import { Package, Database, ChartPie, Settings, ShoppingCart, ClipboardList, IceCreamCone, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useSidebar } from '@/components/ui/sidebar';
 
 type NavItemProps = {
   to: string;
@@ -20,6 +21,7 @@ type NavItemProps = {
 };
 
 const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false }: NavItemProps) => {
+  const { state } = useSidebar();
   return (
     <NavLink
       to={to}
@@ -29,13 +31,14 @@ const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false 
           isActive
             ? "bg-sidebar-accent text-primary font-medium"
             : "text-sidebar-foreground hover:text-sidebar-foreground",
-          highlighted && !isActive && "text-creamello-purple font-medium"
+          highlighted && !isActive && "text-creamello-purple font-medium",
+          state === 'collapsed' && 'justify-center px-0'
         )
       }
       end={exact}
     >
       <Icon className={cn("h-5 w-5", highlighted && "text-creamello-purple")} />
-      <span>{children}</span>
+      {state !== 'collapsed' && <span>{children}</span>}
     </NavLink>
   );
 };
@@ -44,18 +47,23 @@ export const AppSidebar = () => {
   const { staff } = useAuth();
   const role = staff?.role;
   const isAdminOrManager = role === 'admin' || role === 'manager';
+  const { state, toggleSidebar } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  
   return (
-    <Sidebar>
-      <SidebarHeader className="px-6 py-5">
-        <div className="flex items-center gap-2">
+    <Sidebar collapsible="icon">
+      {/* Header with logo */}
+      <SidebarHeader className={cn("px-6 py-5", isCollapsed && "px-2")}>
+        <div className={cn("flex items-center gap-2", isCollapsed && "justify-center")}>
           <div className="h-8 w-8 rounded-lg bg-creamello-purple flex items-center justify-center">
             <span className="text-white font-bold">C</span>
           </div>
-          <h1 className="text-xl font-bold text-foreground">Creamello</h1>
+          {!isCollapsed && <h1 className="text-xl font-bold text-foreground">Creamello</h1>}
         </div>
       </SidebarHeader>
       
-      <SidebarContent className="px-4 py-2">
+      {/* Navigation items */}
+      <SidebarContent className={cn("py-2", isCollapsed ? "px-2" : "px-4")}>
         <div className="space-y-1">
           {(isAdminOrManager || role === 'staff') && (
             <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
@@ -69,11 +77,25 @@ export const AppSidebar = () => {
         </div>
       </SidebarContent>
       
-      <SidebarFooter className="px-4 py-4">
-        <div className="rounded-lg bg-sidebar-accent p-4">
-          <h4 className="text-sm font-medium mb-2">Creamello Sweet Sync</h4>
-          <p className="text-xs text-muted-foreground">Ice Cream Management v1.0</p>
-        </div>
+      {/* Footer with collapse trigger button */}
+      <SidebarFooter className="mt-auto p-3 flex justify-center">
+        <button 
+          onClick={toggleSidebar}
+          className={cn(
+            "flex items-center justify-center p-2 rounded-md hover:bg-sidebar-accent transition-colors",
+            isCollapsed ? "w-8 h-8" : "w-full"
+          )}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isCollapsed ? (
+            <ChevronRight className="h-4 w-4" />
+          ) : (
+            <div className="flex items-center gap-2">
+              <ChevronLeft className="h-4 w-4" />
+              <span className="text-sm">Collapse</span>
+            </div>
+          )}
+        </button>
       </SidebarFooter>
     </Sidebar>
   );

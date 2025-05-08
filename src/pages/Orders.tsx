@@ -457,6 +457,33 @@ const Orders = () => {
     },
   ];
 
+  // 1. Sort menuItems so Oreo comes after Kitkat and below Strawberry
+  const sortedMenuItems = React.useMemo(() => {
+    // Custom order for Flavors category
+    if (activeCategory === 'Flavors') {
+      const flavorOrder = [
+        'Vanilla',
+        'Chocolate',
+        'Strawberry',
+        'Pistachios',
+        'Kitkat',
+        'Oreo',
+      ];
+      return menuItems
+        .filter(item => item.category === activeCategory)
+        .sort((a, b) => {
+          const aIdx = flavorOrder.indexOf(a.name);
+          const bIdx = flavorOrder.indexOf(b.name);
+          if (aIdx === -1 && bIdx === -1) return 0;
+          if (aIdx === -1) return 1;
+          if (bIdx === -1) return -1;
+          return aIdx - bIdx;
+        });
+    }
+    // Default order for other categories
+    return menuItems.filter(item => item.category === activeCategory);
+  }, [menuItems, activeCategory]);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -485,36 +512,39 @@ const Orders = () => {
               </button>
             ))}
           </div>
-          {/* Product Grid */}
-          <div className="flex flex-col md:flex-row gap-6">
-            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {loadingMenu ? (
-                <div className="col-span-full text-center text-lg">Loading menu...</div>
-              ) : (
-                menuItems.filter(item => item.category === activeCategory).map(item => {
-                  const inCart = cart.find(ci => ci.id === item.id);
-                  return (
-                    <button
-                      key={item.id}
-                      className={`relative flex flex-col items-center justify-between rounded-xl border border-muted bg-white shadow-md p-4 h-44 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-creamello-purple hover:shadow-lg active:scale-95`}
-                      onClick={() => addToCart(item)}
-                      aria-label={`Add ${item.name} to order`}
-                    >
-                      {inCart && (
-                        <span className="absolute top-2 right-2 bg-creamello-purple text-white rounded-full px-3 py-1 text-lg font-bold shadow-lg z-10">
-                          {inCart.quantity}
-                        </span>
-                      )}
-                      <span className="text-lg font-bold text-center mb-1">{item.name}</span>
-                      {item.description && <span className="text-xs text-muted-foreground text-center mb-2">{item.description}</span>}
-                      <span className="text-xl font-semibold text-creamello-gray">GHS {Number(item.price).toFixed(2)}</span>
-                    </button>
-                  );
-                })
-              )}
+          {/* Responsive Grid Layout: Product grid left, Order card right */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Product Grid (2/3 width on medium+ screens) */}
+            <div className="md:col-span-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {loadingMenu ? (
+                  <div className="col-span-full text-center text-lg">Loading menu...</div>
+                ) : (
+                  sortedMenuItems.map(item => {
+                    const inCart = cart.find(ci => ci.id === item.id);
+                    return (
+                      <button
+                        key={item.id}
+                        className={`relative flex flex-col items-center justify-between rounded-xl border border-muted bg-white shadow-md p-4 h-44 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-creamello-purple hover:shadow-lg active:scale-95`}
+                        onClick={() => addToCart(item)}
+                        aria-label={`Add ${item.name} to order`}
+                      >
+                        {inCart && (
+                          <span className="absolute top-2 right-2 bg-creamello-purple text-white rounded-full px-3 py-1 text-lg font-bold shadow-lg z-10">
+                            {inCart.quantity}
+                          </span>
+                        )}
+                        <span className="text-lg font-bold text-center mb-1">{item.name}</span>
+                        {item.description && <span className="text-xs text-muted-foreground text-center mb-2">{item.description}</span>}
+                        <span className="text-xl font-semibold text-creamello-gray">GHS {Number(item.price).toFixed(2)}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
-            {/* Order Cart/Sidebar */}
-            <div className="w-full md:w-96 bg-muted rounded-xl shadow-lg flex flex-col p-4 sticky top-4 self-start min-h-[400px] max-h-[80vh] overflow-y-auto">
+            {/* Order Card (1/3 width on medium+ screens, much bigger) */}
+            <div className="bg-gray-50 rounded-2xl shadow-lg p-8 flex flex-col min-h-[500px] md:min-h-[600px] xl:min-h-[700px] w-full md:w-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold">Order</h2>
                 <ShoppingCart className="h-6 w-6 text-creamello-purple" />

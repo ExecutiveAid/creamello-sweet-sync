@@ -12,9 +12,21 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 
+// Type definition for inventory product (matching Supabase schema)
+interface InventoryProduct {
+  id?: string;
+  name: string;
+  category: string;
+  available_quantity: number;
+  unit: string;
+  price_per_unit: number;
+  expiration_date?: string;
+  date_created: string;
+}
+
 const Inventory = () => {
-  const [products, setProducts] = useState<any[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<InventoryProduct[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<InventoryProduct[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -178,12 +190,12 @@ const Inventory = () => {
           },
           {
             header: "Category",
-            cell: (row: any) => getCategoryBadge(row.category),
+            cell: (row: InventoryProduct) => getCategoryBadge(row.category),
             accessorKey: "category"
           },
           {
             header: "Available",
-            cell: (row: any) => (
+            cell: (row: InventoryProduct) => (
               <div className={row.available_quantity < 6 ? "text-amber-500 font-medium" : ""}>
                 {row.available_quantity} {row.unit}
                 {row.available_quantity < 6 && (
@@ -195,7 +207,7 @@ const Inventory = () => {
           },
           {
             header: "Price",
-            cell: (row: any) => (
+            cell: (row: InventoryProduct) => (
               <div>GHS{Number(row.price_per_unit).toFixed(2)}</div>
             ),
             accessorKey: "price_per_unit"
@@ -203,12 +215,12 @@ const Inventory = () => {
           {
             header: "Created",
             accessorKey: "date_created",
-            cell: (row: any) => row.date_created ? format(parseISO(row.date_created), 'MMM dd, yyyy') : ''
+            cell: (row: InventoryProduct) => row.date_created ? format(parseISO(row.date_created), 'MMM dd, yyyy') : ''
           },
           {
             header: "Expires",
             accessorKey: "expiration_date",
-            cell: (row: any) => {
+            cell: (row: InventoryProduct) => {
               if (!row.expiration_date) return '';
               const expiryDate = parseISO(row.expiration_date);
               const isExpiringSoon = isAfter(expiryDate, new Date()) && 

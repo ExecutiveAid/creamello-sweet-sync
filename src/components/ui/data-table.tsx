@@ -1,4 +1,3 @@
-
 import React from 'react';
 import {
   Table,
@@ -14,7 +13,7 @@ import { Button } from '@/components/ui/button';
 
 export interface Column<T> {
   header: string;
-  accessorKey: keyof T | ((row: T) => React.ReactNode);
+  accessorKey?: keyof T | ((row: T) => React.ReactNode);
   cell?: (row: T) => React.ReactNode;
 }
 
