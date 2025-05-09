@@ -15,12 +15,13 @@ import {
   YAxis 
 } from 'recharts';
 import { DataTable } from '@/components/ui/data-table';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 // Type definitions for dashboard data
-interface MonthlySalesRow {
-  month: string;
+interface DailySalesRow {
+  day: string;
   amount: number;
 }
 
@@ -41,67 +42,65 @@ interface RecentSaleRow {
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [todaySales, setTodaySales] = useState(0);
-  const [monthlySales, setMonthlySales] = useState<MonthlySalesRow[]>([]);
+  const [dailySales, setDailySales] = useState<DailySalesRow[]>([]);
   const [productPerformance, setProductPerformance] = useState<ProductPerformanceRow[]>([]);
   const [recentSales, setRecentSales] = useState<RecentSaleRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        // Fetch all delivered orders and their items
-        const { data: orders, error: ordersError } = await supabase
-          .from('orders')
-          .select('id, created_at, payment_method, total, order_items(id, flavor_id, flavor_name, scoops, price)')
-          .eq('status', 'delivered')
-          .order('created_at', { ascending: false });
-        if (ordersError) throw ordersError;
+  // Process orders data function
+  const processOrdersData = (orders: any[]) => {
+    try {
+      // Today's Sales
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const todaySalesSum = (orders || [])
+        .filter(order => order.created_at.slice(0, 10) === today)
+        .reduce((sum, order) => sum + (order.total || 0), 0);
+      setTodaySales(todaySalesSum);
 
-        // Today's Sales
-        const today = format(new Date(), 'yyyy-MM-dd');
-        const todaySalesSum = (orders || [])
-          .filter(order => order.created_at.slice(0, 10) === today)
-          .reduce((sum, order) => sum + (order.total || 0), 0);
-        setTodaySales(todaySalesSum);
-
-        // Monthly Sales (last 6 months)
-        const salesByMonth: Record<string, number> = {};
-        (orders || []).forEach(order => {
-          const d = new Date(order.created_at);
-          const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}`;
-          salesByMonth[key] = (salesByMonth[key] || 0) + (order.total || 0);
+      // Daily Sales (last 14 days)
+      const salesByDay: Record<string, number> = {};
+      (orders || []).forEach(order => {
+        const day = order.created_at.slice(0, 10);
+        salesByDay[day] = (salesByDay[day] || 0) + (order.total || 0);
+      });
+      
+      const days = [];
+      const now = new Date();
+      for (let i = 13; i >= 0; i--) {
+        const d = subDays(now, i);
+        const key = format(d, 'yyyy-MM-dd');
+        days.push({
+          day: format(d, 'dd MMM'),
+          amount: salesByDay[key] || 0
         });
-        const months = [];
-        const now = new Date();
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}`;
-          months.push({
-            month: d.toLocaleString('default', { month: 'short' }),
-            amount: salesByMonth[key] || 0
-          });
-        }
-        setMonthlySales(months);
+      }
+      setDailySales(days);
 
-        // Product Performance (top-selling menu items)
-        const itemSales: Record<string, { name: string, sales: number }> = {};
-        (orders || []).forEach(order => {
-          (order.order_items || []).forEach(item => {
-            const name = item.flavor_name || item.flavor_id || 'N/A';
-            itemSales[name] = itemSales[name] || { name, sales: 0 };
-            itemSales[name].sales += item.scoops || 1;
-          });
+      // Product Performance (top-selling menu items)
+      const itemSales: Record<string, { name: string, sales: number }> = {};
+      (orders || []).forEach(order => {
+        (order.order_items || []).forEach(item => {
+          const name = item.flavor_name || item.flavor_id || 'N/A';
+          itemSales[name] = itemSales[name] || { name, sales: 0 };
+          itemSales[name].sales += item.scoops || 1;
         });
-        const perf = Object.values(itemSales)
-          .sort((a, b) => b.sales - a.sales)
-          .slice(0, 4);
-        setProductPerformance(perf);
+      });
+      const perf = Object.values(itemSales)
+        .sort((a, b) => b.sales - a.sales)
+        .slice(0, 4);
+      setProductPerformance(perf);
 
-        // Recent Sales (last 5 items from delivered orders)
-        const sales = [];
-        (orders || []).forEach(order => {
+      // Recent Sales (only show delivered orders from past 24 hours)
+      const sales = [];
+      const past24Hours = new Date();
+      past24Hours.setHours(past24Hours.getHours() - 24);
+      
+      (orders || [])
+        .filter(order => 
+          order.status === 'delivered' && 
+          new Date(order.created_at) >= past24Hours
+        )
+        .forEach(order => {
           (order.order_items || []).forEach(item => {
             sales.push({
               id: item.id,
@@ -113,14 +112,83 @@ const Dashboard = () => {
             });
           });
         });
-        setRecentSales(sales.slice(0, 5));
+      
+      setRecentSales(sales);
+    } catch (err: any) {
+      setError(err.message || 'Error processing data');
+    }
+  };
+
+  useEffect(() => {
+    let subscription: RealtimeChannel | null = null;
+
+    const fetchDashboardData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch all orders and their items
+        const { data: orders, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, created_at, payment_method, total, status, order_items(id, flavor_id, flavor_name, scoops, price)')
+          .order('created_at', { ascending: false });
+        
+        if (ordersError) throw ordersError;
+        
+        // Process the data
+        processOrdersData(orders || []);
+
+        // Set up real-time subscription for orders table
+        subscription = supabase
+          .channel('orders-and-items-changes')
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'orders',
+          }, handleDataRefresh)
+          .on('postgres_changes', {
+            event: 'UPDATE',  // Specific to status changes (delivered)
+            schema: 'public',
+            table: 'orders',
+            filter: 'status=eq.delivered',
+          }, handleDataRefresh)
+          .subscribe();
+
       } catch (err: any) {
         setError(err.message || 'Failed to load dashboard data');
       } finally {
         setLoading(false);
       }
     };
+
+    // Handler for real-time updates
+    const handleDataRefresh = async () => {
+      console.log("Real-time update detected, refreshing data...");
+      try {
+        // Fetch all orders to properly filter in the processOrdersData function
+        const { data: refreshedOrders, error } = await supabase
+          .from('orders')
+          .select('id, created_at, payment_method, total, status, order_items(id, flavor_id, flavor_name, scoops, price)')
+          .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        if (refreshedOrders) {
+          processOrdersData(refreshedOrders);
+        }
+      } catch (err: any) {
+        console.error("Error refreshing data:", err);
+        setError(err.message || 'Error refreshing data');
+      }
+    };
+
     fetchDashboardData();
+
+    // Cleanup subscription on component unmount
+    return () => {
+      if (subscription) {
+        supabase.removeChannel(subscription);
+      }
+    };
   }, []);
 
   return (
@@ -147,9 +215,9 @@ const Dashboard = () => {
           trendValue=""
         />
         <DashboardCard
-          title="Monthly Sales"
-          value={loading ? 'Loading...' : `GHS${monthlySales.reduce((acc, m) => acc + m.amount, 0).toFixed(2)}`}
-          description="Revenue this month"
+          title="Weekly Sales"
+          value={loading ? 'Loading...' : `GHS${dailySales.slice(-7).reduce((acc, d) => acc + d.amount, 0).toFixed(2)}`}
+          description="Revenue this week"
           icon={null}
           trend="neutral"
           trendValue=""
@@ -174,13 +242,13 @@ const Dashboard = () => {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Monthly Sales</CardTitle>
-            <CardDescription>Sales revenue over the past 6 months</CardDescription>
+            <CardTitle>Daily Sales</CardTitle>
+            <CardDescription>Sales revenue over the past 14 days</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={loading ? [] : monthlySales}
+                data={loading ? [] : dailySales}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
@@ -189,7 +257,7 @@ const Dashboard = () => {
                     <stop offset="95%" stopColor="#9b87f5" stopOpacity={0.1}/>
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="month" stroke="#888888" />
+                <XAxis dataKey="day" stroke="#888888" />
                 <YAxis stroke="#888888" />
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <Tooltip />
@@ -228,7 +296,7 @@ const Dashboard = () => {
       <Card>
         <CardHeader>
           <CardTitle>Recent Sales</CardTitle>
-          <CardDescription>Latest transactions</CardDescription>
+          <CardDescription>Delivered orders from the past 24 hours</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable 
@@ -261,6 +329,7 @@ const Dashboard = () => {
             ]}
           />
           {loading && <div className="text-center text-muted-foreground py-4">Loading recent sales...</div>}
+          {!loading && recentSales.length === 0 && <div className="text-center text-muted-foreground py-4">No delivered orders in the past 24 hours</div>}
         </CardContent>
       </Card>
     </div>

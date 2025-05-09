@@ -205,9 +205,23 @@ const Settings = () => {
       toast({ title: 'Missing Fields', description: 'Please fill all fields.', variant: 'destructive' });
       return;
     }
-    const { error } = await supabase.from('staff').insert([{ name: newStaff.name, pin: newStaff.pin, role: newStaff.role }]);
+    
+    // Store the original PIN for display in success message
+    const displayPin = newStaff.pin;
+    
+    // In a production app, you would use a proper password hashing library
+    // For now, we'll just store the PIN as-is, but mask it in the UI
+    const { error } = await supabase.from('staff').insert([{ 
+      name: newStaff.name, 
+      pin: newStaff.pin, 
+      role: newStaff.role 
+    }]);
+    
     if (!error) {
-      toast({ title: 'Staff Added', description: `${newStaff.name} added as ${newStaff.role}.` });
+      toast({ 
+        title: 'Staff Added', 
+        description: `${newStaff.name} added as ${newStaff.role} with PIN: ${displayPin}` 
+      });
       setShowAddStaff(false);
       setNewStaff({ name: '', pin: '', role: 'staff' });
       // Refresh staff list
@@ -513,7 +527,7 @@ const Settings = () => {
                         <tr key={s.id} className="even:bg-muted/50">
                           <td className="px-4 py-2">{s.name}</td>
                           <td className="px-4 py-2 capitalize">{s.role}</td>
-                          <td className="px-4 py-2 font-mono tracking-wider">{s.pin}</td>
+                          <td className="px-4 py-2 font-mono tracking-wider">{'*'.repeat(s.pin.length)}</td>
                         </tr>
                       ))}
                     </tbody>
