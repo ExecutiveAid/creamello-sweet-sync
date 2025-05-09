@@ -46,7 +46,9 @@ const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false 
 export const AppSidebar = () => {
   const { staff } = useAuth();
   const role = staff?.role;
-  const isAdminOrManager = role === 'admin' || role === 'manager';
+  const isAdmin = role === 'admin';
+  const isManager = role === 'manager';
+  const isAdminOrManager = isAdmin || isManager;
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === 'collapsed';
   
@@ -73,7 +75,7 @@ export const AppSidebar = () => {
           {isAdminOrManager && <NavItem to="/inventory" icon={Package}>Inventory</NavItem>}
           <NavItem to="/orders" icon={IceCreamCone} highlighted={true}>Orders</NavItem>
           <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
-          {isAdminOrManager && <NavItem to="/settings" icon={Settings}>Settings</NavItem>}
+          {isAdmin && <NavItem to="/settings" icon={Settings}>Settings</NavItem>}
         </div>
       </SidebarContent>
       

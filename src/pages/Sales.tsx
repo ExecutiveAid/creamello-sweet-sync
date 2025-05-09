@@ -9,8 +9,11 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/context/AuthContext';
 
 const Sales = () => {
+  const { staff } = useAuth();
+  const isAdmin = staff?.role === 'admin';
   const [sales, setSales] = useState<any[]>([]);
   const [filteredSales, setFilteredSales] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -154,23 +157,25 @@ const Sales = () => {
           <Button variant="outline" size="icon" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button
-            onClick={() => exportToCSV(
-              filteredSales,
-              'sales_report.csv',
-              [
-                { key: 'date', label: 'Date' },
-                { key: 'productName', label: 'Product' },
-                { key: 'quantity', label: 'Quantity' },
-                { key: 'unitPrice', label: 'Unit Price' },
-                { key: 'total', label: 'Total' },
-                { key: 'paymentMethod', label: 'Payment Method' },
-              ]
-            )}
-            disabled={loading}
-          >
-            Generate Report
-          </Button>
+          {isAdmin && (
+            <Button
+              onClick={() => exportToCSV(
+                filteredSales,
+                'sales_report.csv',
+                [
+                  { key: 'date', label: 'Date' },
+                  { key: 'productName', label: 'Product' },
+                  { key: 'quantity', label: 'Quantity' },
+                  { key: 'unitPrice', label: 'Unit Price' },
+                  { key: 'total', label: 'Total' },
+                  { key: 'paymentMethod', label: 'Payment Method' },
+                ]
+              )}
+              disabled={loading}
+            >
+              Generate Report
+            </Button>
+          )}
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}

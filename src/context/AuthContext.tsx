@@ -32,20 +32,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const loginStaff = async (name: string, pin: string) => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('staff')
-      .select('*')
-      .eq('name', name)
-      .eq('pin', pin)
-      .single();
-    setLoading(false);
-    if (error || !data) {
-      return { error: 'Invalid name or PIN' };
+    try {
+      // Get all staff and filter manually instead of using URL parameters
+      const { data, error } = await supabase
+        .from('staff')
+        .select('*');
+      
+      if (error) throw error;
+      
+      // Find the matching staff member
+      const matchedStaff = data?.find(
+        (staff) => staff.name.toLowerCase() === name.toLowerCase() && staff.pin === pin
+      );
+      
+      if (!matchedStaff) {
+        setLoading(false);
+        return { error: 'Invalid name or PIN' };
+      }
+      
+      const staffObj = { 
+        id: matchedStaff.id, 
+        name: matchedStaff.name, 
+        role: matchedStaff.role 
+      };
+      
+      setStaff(staffObj);
+      localStorage.setItem('creamello_staff', JSON.stringify(staffObj));
+      setLoading(false);
+      return {};
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setLoading(false);
+      return { error: 'An error occurred during login. Please try again.' };
     }
-    const staffObj = { id: data.id, name: data.name, role: data.role };
-    setStaff(staffObj);
-    localStorage.setItem('creamello_staff', JSON.stringify(staffObj));
-    return {};
   };
 
   const logout = () => {
