@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useProductInventory } from '@/context/ProductInventoryContext';
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
-import { format } from 'date-fns';
+import { format, subDays, parseISO } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -231,10 +231,14 @@ const Orders = () => {
 
   const { products, deductStock } = useProductInventory();
 
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Set default start date to 24 hours ago
+  const [startDate, setStartDate] = useState(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const { staff } = useAuth();
+  const isAdmin = staff?.role === 'admin';
+  const isManager = staff?.role === 'manager';
+  const isAdminOrManager = isAdmin || isManager;
 
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(true);
@@ -303,6 +307,8 @@ const Orders = () => {
     if (statusFilter) {
       filtered = filtered.filter(order => order.status === statusFilter);
     }
+    
+    // Always filter by date range (last 24 hours by default)
     if (startDate) {
       filtered = filtered.filter(order => {
         const date = order.created_at.slice(0, 10);
@@ -315,6 +321,7 @@ const Orders = () => {
         return date <= endDate;
       });
     }
+    
     setFilteredOrders(filtered);
   }, [orderContext.orders, statusFilter, startDate, endDate]);
 
@@ -678,12 +685,6 @@ const Orders = () => {
               All Orders
             </Badge>
             <Badge 
-              onClick={() => setStatusFilter('ready')}
-              className={`px-3 py-1 cursor-pointer ${statusFilter === 'ready' ? 'bg-green-500 text-white' : 'bg-secondary'}`}
-            >
-              Ready
-            </Badge>
-            <Badge 
               onClick={() => setStatusFilter('delivered')}
               className={`px-3 py-1 cursor-pointer ${statusFilter === 'delivered' ? 'bg-purple-500 text-white' : 'bg-secondary'}`}
             >
@@ -697,36 +698,36 @@ const Orders = () => {
             </Badge>
           </div>
           
-          <div className="flex gap-2 items-center mb-2">
-            <label>From:</label>
-            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
-            <label>To:</label>
-            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
-            <Button
-              variant="outline"
-              onClick={() => {
-                setStartDate('');
-                setEndDate('');
-              }}
-              disabled={!startDate && !endDate}
-            >Clear</Button>
-            <Button
-              onClick={() => exportToCSV(
-                filteredOrders,
-                'orders_report.csv',
-                [
-                  { key: 'id', label: 'Order ID' },
-                  { key: 'staff_id', label: 'Staff' },
-                  { key: 'table_number', label: 'Table' },
-                  { key: 'customer_name', label: 'Customer' },
-                  { key: 'status', label: 'Status' },
-                  { key: 'created_at', label: 'Created' },
-                  { key: 'total', label: 'Total' },
-                  { key: 'payment_method', label: 'Payment Method' },
-                ]
-              )}
-            >Generate Report</Button>
-          </div>
+          {isAdminOrManager ? (
+            <div className="flex gap-2 items-center mb-2">
+              <label>From:</label>
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
+              <label>To:</label>
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setStartDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+                  setEndDate(format(new Date(), 'yyyy-MM-dd'));
+                }}
+                disabled={startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
+                          endDate === format(new Date(), 'yyyy-MM-dd')}
+              >Reset to 24h</Button>
+            </div>
+          ) : null}
+          
+          {isAdmin && (
+            <div className="text-sm text-muted-foreground mb-4">
+              Need detailed order reports? Visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
+            </div>
+          )}
+          
+          <h2 className="text-xl font-semibold mb-2">
+            {startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
+             endDate === format(new Date(), 'yyyy-MM-dd') 
+              ? 'Orders from the past 24 hours'
+              : `Orders from ${startDate} to ${endDate}`}
+          </h2>
           
           <DataTable 
             data={filteredOrders}
@@ -738,29 +739,6 @@ const Orders = () => {
             }}
             onRowClick={handleOrderRowClick}
           />
-
-          {activeTab === 'manage' && (
-            <Button
-              variant="outline"
-              onClick={() => exportToCSV(
-                filteredOrders,
-                'orders.csv',
-                [
-                  { key: 'id', label: 'Order ID' },
-                  { key: 'staff_id', label: 'Staff' },
-                  { key: 'table_number', label: 'Table' },
-                  { key: 'customer_name', label: 'Customer' },
-                  { key: 'status', label: 'Status' },
-                  { key: 'created_at', label: 'Created' },
-                  { key: 'total', label: 'Total' },
-                  { key: 'payment_method', label: 'Payment Method' },
-                ]
-              )}
-              className="mb-2"
-            >
-              Export CSV
-            </Button>
-          )}
 
           {filteredOrders.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">

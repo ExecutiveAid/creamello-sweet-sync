@@ -49,6 +49,7 @@ export const AppSidebar = () => {
   const isAdmin = role === 'admin';
   const isManager = role === 'manager';
   const isAdminOrManager = isAdmin || isManager;
+  const isStaff = role === 'staff';
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === 'collapsed';
   
@@ -67,13 +68,23 @@ export const AppSidebar = () => {
       {/* Navigation items */}
       <SidebarContent className={cn("py-2", isCollapsed ? "px-2" : "px-4")}>
         <div className="space-y-1">
-          {(isAdminOrManager || role === 'staff') && (
-            <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
+          {/* Dashboard - visible to everyone */}
+          <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
+          
+          {/* Admin/Manager only sections */}
+          {isAdminOrManager && (
+            <>
+              <NavItem to="/production" icon={ClipboardList}>Production</NavItem>
+              <NavItem to="/inventory" icon={Package}>Inventory</NavItem>
+              <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
+              <NavItem to="/reports" icon={ChartPie}>Reports</NavItem>
+            </>
           )}
-          {isAdminOrManager && <NavItem to="/production" icon={ClipboardList}>Production</NavItem>}
-          {isAdminOrManager && <NavItem to="/inventory" icon={Package}>Inventory</NavItem>}
+          
+          {/* Orders - visible to everyone */}
           <NavItem to="/orders" icon={IceCreamCone} highlighted={true}>Orders</NavItem>
-          <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
+          
+          {/* Admin only section */}
           {isAdmin && <NavItem to="/settings" icon={Settings}>Settings</NavItem>}
         </div>
       </SidebarContent>

@@ -208,18 +208,18 @@ const Dashboard = () => {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <DashboardCard
           title="Today's Sales"
-          value={loading ? 'Loading...' : `GHS${todaySales.toFixed(2)}`}
+          value={loading ? 'Loading...' : `GHS ${todaySales.toFixed(2)}`}
           description="Revenue generated today"
           icon={null}
-          trend="neutral"
+          trend={null}
           trendValue=""
         />
         <DashboardCard
           title="Weekly Sales"
-          value={loading ? 'Loading...' : `GHS${dailySales.slice(-7).reduce((acc, d) => acc + d.amount, 0).toFixed(2)}`}
+          value={loading ? 'Loading...' : `GHS ${dailySales.slice(-7).reduce((acc, d) => acc + d.amount, 0).toFixed(2)}`}
           description="Revenue this week"
           icon={null}
-          trend="neutral"
+          trend={null}
           trendValue=""
         />
         <DashboardCard
@@ -227,7 +227,7 @@ const Dashboard = () => {
           value={loading || productPerformance.length === 0 ? 'Loading...' : productPerformance[0].name}
           description="Best selling menu item"
           icon={null}
-          trend="up"
+          trend={null}
           trendValue=""
         />
         <DashboardCard
@@ -235,7 +235,7 @@ const Dashboard = () => {
           value={loading ? 'Loading...' : recentSales.length}
           description="Transactions today"
           icon={null}
-          trend="neutral"
+          trend={null}
           trendValue=""
         />
       </div>
@@ -316,14 +316,12 @@ const Dashboard = () => {
               },
               {
                 header: "Total",
-                cell: (row: RecentSaleRow) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
-                accessorKey: "total"
+                cell: (row) => <div>GHS {row.total.toFixed(2)}</div>,
+                accessorKey: "total",
               },
               {
                 header: "Payment",
-                cell: (row: RecentSaleRow) => (
-                  <div className="capitalize">{row.paymentMethod}</div>
-                ),
+                cell: (row) => <div className="capitalize">{row.paymentMethod}</div>,
                 accessorKey: "paymentMethod"
               }
             ]}

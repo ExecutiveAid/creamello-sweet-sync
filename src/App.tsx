@@ -12,6 +12,7 @@ import Orders from "./pages/Orders";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Login from './pages/Login';
+import Reports from './pages/Reports';
 import { OrderProvider } from "./context/OrderContext";
 import { ProductInventoryProvider } from "./context/ProductInventoryContext";
 import { IngredientInventoryProvider } from "./context/IngredientInventoryContext";
@@ -32,6 +33,14 @@ function AdminRoute() {
   const { staff, loading } = useAuth();
   if (loading) return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
   if (!staff || staff.role !== 'admin') return <Navigate to="/" replace />;
+  return <Outlet />;
+}
+
+// Add AdminOrManagerRoute component to protect routes for admin/manager only
+function AdminOrManagerRoute() {
+  const { staff, loading } = useAuth();
+  if (loading) return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
+  if (!staff || (staff.role !== 'admin' && staff.role !== 'manager')) return <Navigate to="/" replace />;
   return <Outlet />;
 }
 
@@ -84,10 +93,15 @@ const App = () => {
                     <Route element={<ProtectedRoute />}>
                       <Route element={<Layout />}>
                         <Route path="/" element={<Dashboard />} />
+                        <Route path="/orders" element={<Orders />} />
+                      </Route>
+                    </Route>
+                    <Route element={<AdminOrManagerRoute />}>
+                      <Route element={<Layout />}>
                         <Route path="/production" element={<Production />} />
                         <Route path="/inventory" element={<Inventory />} />
                         <Route path="/sales" element={<Sales />} />
-                        <Route path="/orders" element={<Orders />} />
+                        <Route path="/reports" element={<Reports />} />
                       </Route>
                     </Route>
                     <Route element={<AdminRoute />}>

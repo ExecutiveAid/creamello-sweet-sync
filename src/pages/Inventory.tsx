@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { useAuth } from '@/context/AuthContext';
 
 // Type definition for inventory product (matching Supabase schema)
 interface InventoryProduct {
@@ -33,6 +34,10 @@ const Inventory = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { staff } = useAuth();
+  const isAdmin = staff?.role === 'admin';
+  const isManager = staff?.role === 'manager';
+  const isAdminOrManager = isAdmin || isManager;
   const [newItem, setNewItem] = useState({
     name: '',
     category: '',
@@ -146,24 +151,6 @@ const Inventory = () => {
             <Plus className="mr-2 h-4 w-4" /> New Inventory Item
           </Button>
           <Button>View Stock Alerts</Button>
-          <Button
-            variant="outline"
-            onClick={() => exportToCSV(
-              filteredProducts,
-              'inventory.csv',
-              [
-                { key: 'name', label: 'Name' },
-                { key: 'category', label: 'Category' },
-                { key: 'available_quantity', label: 'Available' },
-                { key: 'unit', label: 'Unit' },
-                { key: 'price_per_unit', label: 'Price' },
-                { key: 'expiration_date', label: 'Expiration Date' },
-              ]
-            )}
-            disabled={loading}
-          >
-            Export CSV
-          </Button>
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}
@@ -181,6 +168,13 @@ const Inventory = () => {
           disabled={!startDate && !endDate}
         >Clear</Button>
       </div>
+      
+      {isAdmin && (
+        <div className="text-sm text-muted-foreground mb-4">
+          For inventory reports and exports, visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
+        </div>
+      )}
+      
       <DataTable
         data={loading ? [] : filteredProducts}
         columns={[

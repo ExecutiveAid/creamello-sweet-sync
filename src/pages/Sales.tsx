@@ -4,7 +4,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, addDays } from 'date-fns';
+import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, addDays, subDays } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
@@ -17,13 +17,18 @@ const EMPLOYEE_COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', 
 const Sales = () => {
   const { staff } = useAuth();
   const isAdmin = staff?.role === 'admin';
+  const isManager = staff?.role === 'manager';
+  const isAdminOrManager = isAdmin || isManager;
   const [sales, setSales] = useState<any[]>([]);
   const [filteredSales, setFilteredSales] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [weeklySales, setWeeklySales] = useState<any[]>([]);
   const [employeeSales, setEmployeeSales] = useState<any[]>([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  
+  // Set default start date to 24 hours ago
+  const [startDate, setStartDate] = useState(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,12 +131,15 @@ const Sales = () => {
     if (searchQuery) {
       filtered = filtered.filter(sale => sale.productName.toLowerCase().includes(searchQuery.toLowerCase()));
     }
+    
+    // Always filter by date range (last 24 hours by default)
     if (startDate) {
       filtered = filtered.filter(sale => sale.date >= startDate);
     }
     if (endDate) {
       filtered = filtered.filter(sale => sale.date <= endDate);
     }
+    
     setFilteredSales(filtered);
   }, [searchQuery, sales, startDate, endDate]);
 
@@ -233,6 +241,7 @@ const Sales = () => {
   const today = format(new Date(), 'yyyy-MM-dd');
   const todaySales = sales.filter(sale => sale.date === today).reduce((acc, sale) => acc + sale.total, 0);
 
+  // Current month sales
   const currentMonthSales = sales.filter(sale => {
     const saleDate = parseISO(sale.date);
     const monthStart = startOfMonth(new Date());
@@ -240,6 +249,7 @@ const Sales = () => {
     return saleDate >= monthStart && saleDate <= monthEnd;
   }).reduce((acc, sale) => acc + sale.total, 0);
 
+  // Calculate average order value
   const avgOrderValue = sales.length > 0 
     ? sales.reduce((acc, sale) => acc + sale.total, 0) / sales.length
     : 0;
@@ -252,26 +262,6 @@ const Sales = () => {
           <Button variant="outline" size="icon" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          {isAdmin && (
-            <Button
-              onClick={() => exportToCSV(
-                filteredSales,
-                'sales_report.csv',
-                [
-                  { key: 'date', label: 'Date' },
-                  { key: 'productName', label: 'Product' },
-                  { key: 'quantity', label: 'Quantity' },
-                  { key: 'unitPrice', label: 'Unit Price' },
-                  { key: 'total', label: 'Total' },
-                  { key: 'paymentMethod', label: 'Payment Method' },
-                  { key: 'staffName', label: 'Staff Member' },
-                ]
-              )}
-              disabled={loading}
-            >
-              Generate Report
-            </Button>
-          )}
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}
@@ -279,19 +269,19 @@ const Sales = () => {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Today's Sales</CardTitle>
-            <CardDescription className="text-2xl font-bold">GHS{todaySales.toFixed(2)}</CardDescription>
+            <CardDescription className="text-2xl font-bold">GHS {todaySales.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Month to Date</CardTitle>
-            <CardDescription className="text-2xl font-bold">GHS{currentMonthSales.toFixed(2)}</CardDescription>
+            <CardDescription className="text-2xl font-bold">GHS {currentMonthSales.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Avg. Order Value</CardTitle>
-            <CardDescription className="text-2xl font-bold">GHS{avgOrderValue.toFixed(2)}</CardDescription>
+            <CardDescription className="text-2xl font-bold">GHS {avgOrderValue.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -355,31 +345,27 @@ const Sales = () => {
         <Button
           variant="outline"
           onClick={() => {
-            setStartDate('');
-            setEndDate('');
+            setStartDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+            setEndDate(format(new Date(), 'yyyy-MM-dd'));
           }}
-          disabled={!startDate && !endDate}
-        >Clear</Button>
+          disabled={startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
+                    endDate === format(new Date(), 'yyyy-MM-dd')}
+        >Reset to 24h</Button>
       </div>
-      <Button
-        variant="outline"
-        onClick={() => exportToCSV(
-          filteredSales,
-          'sales.csv',
-          [
-            { key: 'date', label: 'Date' },
-            { key: 'productName', label: 'Product' },
-            { key: 'quantity', label: 'Quantity' },
-            { key: 'unitPrice', label: 'Unit Price' },
-            { key: 'total', label: 'Total' },
-            { key: 'paymentMethod', label: 'Payment Method' },
-            { key: 'staffName', label: 'Staff Member' },
-          ]
-        )}
-        disabled={loading}
-      >
-        Export CSV
-      </Button>
+      
+      {isAdmin && (
+        <div className="text-sm text-muted-foreground mb-4">
+          Need detailed reports? Visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
+        </div>
+      )}
+      
+      <h2 className="text-xl font-semibold mb-2">
+        {startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
+         endDate === format(new Date(), 'yyyy-MM-dd') 
+          ? 'Sales from the past 24 hours'
+          : `Sales from ${startDate} to ${endDate}`}
+      </h2>
+      
       <DataTable
         data={loading ? [] : filteredSales}
         columns={[
@@ -397,12 +383,12 @@ const Sales = () => {
           },
           {
             header: "Unit Price",
-            cell: (row: any) => <div>GHS{row.unitPrice.toFixed(2)}</div>,
+            cell: (row: any) => <div>GHS {row.unitPrice.toFixed(2)}</div>,
             accessorKey: "unitPrice"
           },
           {
             header: "Total",
-            cell: (row: any) => <div className="font-medium">GHS{row.total.toFixed(2)}</div>,
+            cell: (row: any) => <div className="font-medium">GHS {row.total.toFixed(2)}</div>,
             accessorKey: "total"
           },
           {

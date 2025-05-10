@@ -1,4 +1,3 @@
-
 import { cn } from '@/lib/utils';
 import React from 'react';
 
@@ -58,7 +57,7 @@ export function DashboardCard({
             {trend === 'neutral' && '→'}
             {trendValue}
           </span>
-          <span className="text-xs text-muted-foreground ml-2">vs. last month</span>
+          {trendValue && <span className="text-xs text-muted-foreground ml-2">vs. last month</span>}
         </div>
       )}
     </div>

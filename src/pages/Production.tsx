@@ -53,6 +53,7 @@ const Production = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   // For dialog (UI only, not DB insert yet)
   const [newBatch, setNewBatch] = useState({
     product_name: '',
@@ -196,17 +197,30 @@ const Production = () => {
     };
   }, []);
 
-  // Handle search
+  // Handle search and low stock filter
   useEffect(() => {
     let filtered = batches;
+    
+    // Apply search filter
     if (searchQuery) {
       filtered = filtered.filter(batch =>
         batch.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         batch.category.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
+    
+    // Apply low stock filter if enabled
+    if (showLowStockOnly) {
+      filtered = filtered.filter(batch => 
+        batch.status === 'completed' && 
+        batch.available_quantity !== undefined && 
+        batch.quantity > 0 && 
+        batch.available_quantity < batch.quantity * LOW_INVENTORY_THRESHOLD
+      );
+    }
+    
     setFilteredBatches(filtered);
-  }, [searchQuery, batches]);
+  }, [searchQuery, batches, showLowStockOnly]);
 
   const handleRefresh = async () => {
     fetchBatches();
@@ -248,6 +262,33 @@ const Production = () => {
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}
+      
+      {/* Filter Controls */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            id="lowStockFilter"
+            checked={showLowStockOnly}
+            onChange={(e) => setShowLowStockOnly(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-creamello-purple focus:ring-creamello-purple mr-2"
+          />
+          <label htmlFor="lowStockFilter" className="text-sm font-medium flex items-center">
+            <AlertTriangle className="h-4 w-4 text-red-500 mr-1" />
+            Show Low Stock Only
+          </label>
+        </div>
+        
+        {showLowStockOnly && filteredBatches.length === 0 && (
+          <p className="text-sm text-muted-foreground">No low stock items found</p>
+        )}
+        
+        {showLowStockOnly && (
+          <Badge className="bg-red-500">
+            {filteredBatches.length} Low Stock {filteredBatches.length === 1 ? 'Item' : 'Items'}
+          </Badge>
+        )}
+      </div>
       
       {/* Low Inventory Alert Section */}
       {batches.filter(b => 
