@@ -90,28 +90,27 @@ const Dashboard = () => {
         .slice(0, 4);
       setProductPerformance(perf);
 
-      // Recent Sales (only show delivered orders from past 24 hours)
+      // 10 Most Recent Sales (completed orders only)
       const sales = [];
-      const past24Hours = new Date();
-      past24Hours.setHours(past24Hours.getHours() - 24);
       
-      (orders || [])
-        .filter(order => 
-          order.status === 'delivered' && 
-          new Date(order.created_at) >= past24Hours
-        )
-        .forEach(order => {
-          (order.order_items || []).forEach(item => {
-            sales.push({
-              id: item.id,
-              productName: item.flavor_name || item.flavor_id || 'N/A',
-              date: new Date(order.created_at).toLocaleString(),
-              quantity: item.scoops || 1,
-              total: item.price * (item.scoops || 1),
-              paymentMethod: order.payment_method || 'N/A',
-            });
+      // Filter completed orders and sort by date (newest first)
+      const completedOrders = (orders || [])
+        .filter(order => order.status === 'completed')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10); // Take only 10 most recent
+      
+      completedOrders.forEach(order => {
+        (order.order_items || []).forEach(item => {
+          sales.push({
+            id: item.id,
+            productName: item.flavor_name || item.flavor_id || 'N/A',
+            date: new Date(order.created_at).toLocaleString(),
+            quantity: item.scoops || 1,
+            total: item.price * (item.scoops || 1),
+            paymentMethod: order.payment_method || 'N/A',
           });
         });
+      });
       
       setRecentSales(sales);
     } catch (err: any) {
@@ -146,10 +145,10 @@ const Dashboard = () => {
             table: 'orders',
           }, handleDataRefresh)
           .on('postgres_changes', {
-            event: 'UPDATE',  // Specific to status changes (delivered)
+            event: 'UPDATE',  // Specific to status changes (completed)
             schema: 'public',
             table: 'orders',
-            filter: 'status=eq.delivered',
+            filter: 'status=eq.completed',
           }, handleDataRefresh)
           .subscribe();
 
@@ -296,7 +295,7 @@ const Dashboard = () => {
       <Card>
         <CardHeader>
           <CardTitle>Recent Sales</CardTitle>
-          <CardDescription>Delivered orders from the past 24 hours</CardDescription>
+          <CardDescription>10 most recent completed orders</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable 
@@ -327,7 +326,7 @@ const Dashboard = () => {
             ]}
           />
           {loading && <div className="text-center text-muted-foreground py-4">Loading recent sales...</div>}
-          {!loading && recentSales.length === 0 && <div className="text-center text-muted-foreground py-4">No delivered orders in the past 24 hours</div>}
+          {!loading && recentSales.length === 0 && <div className="text-center text-muted-foreground py-4">No completed orders found</div>}
         </CardContent>
       </Card>
     </div>

@@ -20,7 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Plus, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, RefreshCw, AlertTriangle, RefreshCcw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
@@ -37,11 +37,20 @@ interface ProductionBatch {
   production_date: string;
   notes?: string;
   available_quantity?: number;
+  last_replenished_at?: string;
 }
 
 // Interface to track which batches have already triggered low inventory warnings
 interface LowInventoryAlerts {
   [batchId: string]: boolean;
+}
+
+// Interface for replenishment data
+interface ReplenishmentData {
+  batchId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
 }
 
 const LOW_INVENTORY_THRESHOLD = 0.3; // 30% threshold
@@ -54,6 +63,18 @@ const Production = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  // Add state for categories
+  const [categories, setCategories] = useState<string[]>([]);
+  
+  // Replenishment state
+  const [replenishDialogOpen, setReplenishDialogOpen] = useState(false);
+  const [replenishmentData, setReplenishmentData] = useState<ReplenishmentData>({
+    batchId: '',
+    productName: '',
+    quantity: 0,
+    unit: ''
+  });
+  
   // For dialog (UI only, not DB insert yet)
   const [newBatch, setNewBatch] = useState({
     product_name: '',
@@ -142,8 +163,28 @@ const Production = () => {
     }
   };
 
+  // Add a function to fetch categories
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('category')
+        .order('category');
+      
+      if (error) throw error;
+      
+      // Extract unique categories
+      const uniqueCategories = [...new Set(data.map(item => item.category))];
+      setCategories(uniqueCategories);
+    } catch (err: any) {
+      console.error('Error fetching categories:', err.message);
+      // Don't show error to user, just log it
+    }
+  };
+
   useEffect(() => {
     fetchBatches();
+    fetchCategories();
 
     // Set up real-time subscription to production_batches table
     const subscription = supabase
@@ -246,6 +287,81 @@ const Production = () => {
     if (category.toLowerCase().includes('milkshake') || category.toLowerCase().includes('juice')) return 'L';
     if (category.toLowerCase().includes('cone')) return 'pcs';
     return '';
+  };
+
+  const handleReplenish = (batch: ProductionBatch) => {
+    // Prepare replenishment data
+    setReplenishmentData({
+      batchId: batch.id || '',
+      productName: batch.product_name,
+      quantity: 0, // Default to 0, will be set by user
+      unit: batch.unit
+    });
+    
+    // Open replenishment dialog
+    setReplenishDialogOpen(true);
+  };
+
+  const submitReplenishment = async () => {
+    if (replenishmentData.quantity <= 0) {
+      toast({
+        title: "Invalid Quantity",
+        description: "Please enter a positive quantity to replenish.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Get the current batch
+      const { data: batchData, error: fetchError } = await supabase
+        .from('production_batches')
+        .select('*')
+        .eq('id', replenishmentData.batchId)
+        .single();
+        
+      if (fetchError) throw fetchError;
+      
+      // Calculate new available quantity
+      const currentAvailable = batchData.available_quantity || 0;
+      const newAvailable = currentAvailable + replenishmentData.quantity;
+      const now = new Date().toISOString();
+
+      // Update the batch's available quantity and last_replenished_at timestamp
+      const { error: updateError } = await supabase
+        .from('production_batches')
+        .update({ 
+          available_quantity: newAvailable,
+          last_replenished_at: now
+        })
+        .eq('id', replenishmentData.batchId);
+        
+      if (updateError) throw updateError;
+
+      // Success! Close dialog and refresh
+      toast({
+        title: "Stock Replenished",
+        description: `Added ${replenishmentData.quantity} ${replenishmentData.unit} to ${replenishmentData.productName}.`
+      });
+      
+      setReplenishDialogOpen(false);
+      fetchBatches(); // Refresh data
+      
+      // Clear low stock alert for this batch
+      if (batchData.id) {
+        delete lowInventoryAlertsRef.current[batchData.id];
+      }
+      
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to replenish stock.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -388,6 +504,25 @@ const Production = () => {
                     ></div>
                   </div>
                   <div className="text-xs text-gray-500">{Math.round(percentRemaining)}% remaining</div>
+                  
+                  {/* Last replenished date if available */}
+                  {row.last_replenished_at && (
+                    <div className="text-xs text-gray-600">
+                      Last replenished: {format(parseISO(row.last_replenished_at), 'MMM dd, yyyy')}
+                    </div>
+                  )}
+                  
+                  {/* Add replenish button for low stock completed batches */}
+                  {isLow && row.status === 'completed' && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleReplenish(row)}
+                      className="mt-2 text-xs"
+                    >
+                      <RefreshCcw className="h-3 w-3 mr-1" /> Replenish
+                    </Button>
+                  )}
                 </div>
               );
             },
@@ -461,15 +596,25 @@ const Production = () => {
               <Label htmlFor="category" className="text-right">
                 Category *
               </Label>
-              <Input
-                id="category"
+              <Select
                 value={newBatch.category}
-                onChange={(e) => {
-                  const cat = e.target.value;
-                  setNewBatch({ ...newBatch, category: cat, unit: getSuggestedUnit(cat) });
+                onValueChange={(category) => {
+                  setNewBatch({ 
+                    ...newBatch, 
+                    category, 
+                    unit: getSuggestedUnit(category)
+                  });
                 }}
-                className="col-span-3"
-              />
+              >
+                <SelectTrigger id="category" className="col-span-3">
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>{category}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="production_date" className="text-right">
@@ -596,6 +741,55 @@ const Production = () => {
               disabled={loading}
             >
               Add Batch
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Replenishment Dialog */}
+      <Dialog open={replenishDialogOpen} onOpenChange={setReplenishDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Replenish Stock</DialogTitle>
+            <DialogDescription>
+              Add more stock to {replenishmentData.productName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="replenish_quantity" className="text-right">
+                Quantity *
+              </Label>
+              <Input
+                id="replenish_quantity"
+                type="number"
+                value={replenishmentData.quantity || ''}
+                onChange={(e) => setReplenishmentData({
+                  ...replenishmentData,
+                  quantity: parseFloat(e.target.value) || 0
+                })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="replenish_unit" className="text-right">
+                Unit
+              </Label>
+              <Input
+                id="replenish_unit"
+                value={replenishmentData.unit}
+                disabled
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReplenishDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={submitReplenishment}
+              disabled={loading || replenishmentData.quantity <= 0}
+            >
+              Replenish Stock
             </Button>
           </DialogFooter>
         </DialogContent>

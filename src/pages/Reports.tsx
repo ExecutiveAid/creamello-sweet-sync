@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
-import { FilePieChart, FileSpreadsheet, TrendingUp, CalendarRange, FileText, Download, BarChart3 } from 'lucide-react';
+import { FilePieChart, FileSpreadsheet, TrendingUp, CalendarRange, FileText, Download, BarChart3, Loader2, FileDown } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -46,7 +46,7 @@ const Reports = () => {
       let query = supabase
         .from('orders')
         .select('id, created_at, payment_method, total, staff_id, status, order_items(id, flavor_id, flavor_name, scoops, price)')
-        .eq('status', 'delivered');
+        .eq('status', 'completed');
 
       // Add date filters if set
       if (startDate) {
@@ -221,7 +221,7 @@ const Reports = () => {
   const generateProductionReport = async () => {
     setLoading(true);
     try {
-      // Build query based on date range
+      // Build production batches query
       let query = supabase
         .from('production_batches')
         .select('*');
@@ -246,13 +246,18 @@ const Reports = () => {
       
       const filename = `production_report${dateRange}.csv`;
       const columns = [
-        { key: 'production_date', label: 'Date' },
+        { key: 'production_date', label: 'Production Date' },
         { key: 'product_name', label: 'Product' },
         { key: 'category', label: 'Category' },
-        { key: 'quantity', label: 'Quantity' },
+        { key: 'quantity', label: 'Total Quantity' },
         { key: 'available_quantity', label: 'Available Quantity' },
         { key: 'unit', label: 'Unit' },
         { key: 'status', label: 'Status' },
+        { 
+          key: 'last_replenished_at', 
+          label: 'Last Replenished',
+          formatter: (val) => val ? format(new Date(val), 'yyyy-MM-dd HH:mm:ss') : 'Never'
+        },
         { key: 'notes', label: 'Notes' }
       ];
       
@@ -525,7 +530,7 @@ const Reports = () => {
                 <FilePieChart className="h-5 w-5 text-creamello-purple" />
                 Production Reports
               </CardTitle>
-              <CardDescription>Generate reports on production batches and product availability</CardDescription>
+              <CardDescription>Generate reports on production batches and product availability including replenishment dates</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">

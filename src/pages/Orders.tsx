@@ -426,7 +426,7 @@ const Orders = () => {
           row.status === 'pending' ? 'bg-yellow-500' :
           row.status === 'preparing' ? 'bg-blue-500' :
           row.status === 'ready' ? 'bg-green-500' :
-          row.status === 'delivered' ? 'bg-purple-500' :
+          row.status === 'completed' ? 'bg-purple-500' :
           'bg-red-500'
         }>
           {row.status}
@@ -442,19 +442,19 @@ const Orders = () => {
       accessorKey: "id" as keyof Order,
       cell: (row: Order) => (
         <div className="flex space-x-2">
-          {row.status !== 'delivered' && row.status !== 'cancelled' && (
+          {row.status !== 'completed' && row.status !== 'cancelled' && (
             <Button
               size="sm"
               className="bg-green-500 hover:bg-green-600 text-white"
-              onClick={e => { e.stopPropagation(); updateOrderStatus(row.id, 'delivered'); }}
+              onClick={e => { e.stopPropagation(); updateOrderStatus(row.id, 'completed'); }}
             >
-              Delivered
+              Complete
             </Button>
           )}
           <Button
             variant="destructive"
             size="sm"
-            disabled={row.status === 'delivered' || row.status === 'cancelled'}
+            disabled={row.status === 'completed' || row.status === 'cancelled'}
             onClick={e => { e.stopPropagation(); handleCancelOrder(row); }}
           >
             Cancel
@@ -685,10 +685,10 @@ const Orders = () => {
               All Orders
             </Badge>
             <Badge 
-              onClick={() => setStatusFilter('delivered')}
-              className={`px-3 py-1 cursor-pointer ${statusFilter === 'delivered' ? 'bg-purple-500 text-white' : 'bg-secondary'}`}
+              onClick={() => setStatusFilter('completed')}
+              className={`px-3 py-1 cursor-pointer ${statusFilter === 'completed' ? 'bg-purple-500 text-white' : 'bg-secondary'}`}
             >
-              Delivered
+              Completed
             </Badge>
             <Badge 
               onClick={() => setStatusFilter('cancelled')}

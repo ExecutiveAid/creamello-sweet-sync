@@ -25,9 +25,9 @@ const Sales = () => {
   const [weeklySales, setWeeklySales] = useState<any[]>([]);
   const [employeeSales, setEmployeeSales] = useState<any[]>([]);
   
-  // Set default start date to 24 hours ago
-  const [startDate, setStartDate] = useState(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // Set default date range to past 24 hours (no longer exposed to user)
+  const startDate = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+  const endDate = format(new Date(), 'yyyy-MM-dd');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,11 +37,11 @@ const Sales = () => {
       setLoading(true);
       setError(null);
       try {
-        // Fetch all delivered orders and their items
+        // Fetch all completed orders and their items
         const { data: orders, error: ordersError } = await supabase
           .from('orders')
           .select('id, created_at, payment_method, total, staff_id, order_items(id, flavor_id, flavor_name, scoops, price)')
-          .eq('status', 'delivered')
+          .eq('status', 'completed')
           .order('created_at', { ascending: false });
         if (ordersError) throw ordersError;
 
@@ -125,23 +125,22 @@ const Sales = () => {
     fetchSalesData();
   }, []);
 
-  // Handle search and date filtering
+  // Update filtering to use fixed 24 hour window
   useEffect(() => {
     let filtered = sales;
     if (searchQuery) {
       filtered = filtered.filter(sale => sale.productName.toLowerCase().includes(searchQuery.toLowerCase()));
     }
     
-    // Always filter by date range (last 24 hours by default)
-    if (startDate) {
-      filtered = filtered.filter(sale => sale.date >= startDate);
-    }
-    if (endDate) {
-      filtered = filtered.filter(sale => sale.date <= endDate);
-    }
+    // Filter to only show last 24 hours of sales
+    const oneDayAgo = subDays(new Date(), 1);
+    filtered = filtered.filter(sale => {
+      const saleDate = new Date(sale.date);
+      return saleDate >= oneDayAgo;
+    });
     
     setFilteredSales(filtered);
-  }, [searchQuery, sales, startDate, endDate]);
+  }, [searchQuery, sales]);
 
   const handleRefresh = async () => {
     setLoading(true);
@@ -151,7 +150,7 @@ const Sales = () => {
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
         .select('id, created_at, payment_method, total, staff_id, order_items(id, flavor_id, flavor_name, scoops, price)')
-        .eq('status', 'delivered')
+        .eq('status', 'completed')
         .order('created_at', { ascending: false });
       if (ordersError) throw ordersError;
       
@@ -337,22 +336,6 @@ const Sales = () => {
         </Card>
       </div>
       
-      <div className="flex gap-2 items-center mb-2">
-        <label>From:</label>
-        <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
-        <label>To:</label>
-        <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
-        <Button
-          variant="outline"
-          onClick={() => {
-            setStartDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
-            setEndDate(format(new Date(), 'yyyy-MM-dd'));
-          }}
-          disabled={startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
-                    endDate === format(new Date(), 'yyyy-MM-dd')}
-        >Reset to 24h</Button>
-      </div>
-      
       {isAdmin && (
         <div className="text-sm text-muted-foreground mb-4">
           Need detailed reports? Visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
@@ -360,10 +343,7 @@ const Sales = () => {
       )}
       
       <h2 className="text-xl font-semibold mb-2">
-        {startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
-         endDate === format(new Date(), 'yyyy-MM-dd') 
-          ? 'Sales from the past 24 hours'
-          : `Sales from ${startDate} to ${endDate}`}
+        Sales from the past 24 hours
       </h2>
       
       <DataTable

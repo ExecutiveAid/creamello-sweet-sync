@@ -34,7 +34,7 @@ export interface Order {
   customer_name?: string;
   table_number?: string;
   total: number;
-  status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+  status: 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
   payment_method?: string;
   created_at: string;
   updated_at: string;
@@ -97,8 +97,8 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     await supabase.from('orders').update({ status }).eq('id', orderId);
 
     // Deduct from production batch if delivered
-    if (status === 'delivered') {
-      console.log(`Order ${orderId} marked as delivered, deducting from production batches...`);
+    if (status === 'completed') {
+      console.log(`Order ${orderId} marked as completed, deducting from production batches...`);
       // Fetch the order and its items
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
