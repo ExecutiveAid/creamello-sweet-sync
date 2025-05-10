@@ -4,12 +4,15 @@ import { DataTable } from '@/components/ui/data-table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, addDays } from 'date-fns';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
+
+// COLORS for the pie chart
+const EMPLOYEE_COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', '#f58787', '#87f5e2', '#c387f5'];
 
 const Sales = () => {
   const { staff } = useAuth();
@@ -17,7 +20,8 @@ const Sales = () => {
   const [sales, setSales] = useState<any[]>([]);
   const [filteredSales, setFilteredSales] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [monthlySales, setMonthlySales] = useState<any[]>([]);
+  const [weeklySales, setWeeklySales] = useState<any[]>([]);
+  const [employeeSales, setEmployeeSales] = useState<any[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(true);
@@ -31,10 +35,22 @@ const Sales = () => {
         // Fetch all delivered orders and their items
         const { data: orders, error: ordersError } = await supabase
           .from('orders')
-          .select('id, created_at, payment_method, total, order_items(id, flavor_id, flavor_name, scoops, price)')
+          .select('id, created_at, payment_method, total, staff_id, order_items(id, flavor_id, flavor_name, scoops, price)')
           .eq('status', 'delivered')
           .order('created_at', { ascending: false });
         if (ordersError) throw ordersError;
+
+        // Fetch staff names to display in the chart
+        const { data: staffMembers, error: staffError } = await supabase
+          .from('staff')
+          .select('id, name');
+        if (staffError) throw staffError;
+
+        // Create staff lookup map
+        const staffMap = (staffMembers || []).reduce((acc: Record<string, string>, member: any) => {
+          acc[member.id] = member.name;
+          return acc;
+        }, {});
 
         // Flatten order items into sales rows
         const salesRows: any[] = [];
@@ -48,30 +64,53 @@ const Sales = () => {
               unitPrice: item.price,
               total: item.price * (item.scoops || 1),
               paymentMethod: order.payment_method || 'N/A',
+              staffId: order.staff_id,
+              staffName: staffMap[order.staff_id] || 'Unknown',
             });
           });
         });
         setSales(salesRows);
         setFilteredSales(salesRows);
 
-        // Monthly sales (last 6 months)
-        const salesByMonth: Record<string, number> = {};
+        // Weekly sales (last 8 weeks)
+        const salesByWeek: Record<string, number> = {};
         (orders || []).forEach(order => {
-          const d = new Date(order.created_at);
-          const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}`;
-          salesByMonth[key] = (salesByMonth[key] || 0) + (order.total || 0);
+          const orderDate = new Date(order.created_at);
+          const weekStart = startOfWeek(orderDate, { weekStartsOn: 1 }); // Week starts on Monday
+          const key = format(weekStart, 'yyyy-MM-dd');
+          salesByWeek[key] = (salesByWeek[key] || 0) + (order.total || 0);
         });
-        const months = [];
+
+        const weeks = [];
         const now = new Date();
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const key = `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2, '0')}`;
-          months.push({
-            month: d.toLocaleString('default', { month: 'short' }),
-            amount: salesByMonth[key] || 0
+        for (let i = 7; i >= 0; i--) {
+          const weekStart = startOfWeek(subWeeks(now, i), { weekStartsOn: 1 });
+          const weekEnd = endOfWeek(subWeeks(now, i), { weekStartsOn: 1 });
+          const key = format(weekStart, 'yyyy-MM-dd');
+          
+          // Format as "MMM dd-dd" (e.g., "Jul 10-16")
+          const weekLabel = `${format(weekStart, 'MMM dd')}-${format(weekEnd, 'dd')}`;
+          
+          weeks.push({
+            week: weekLabel,
+            amount: salesByWeek[key] || 0
           });
         }
-        setMonthlySales(months);
+        setWeeklySales(weeks);
+        
+        // Calculate sales per employee
+        const salesByEmployee: Record<string, number> = {};
+        (orders || []).forEach(order => {
+          const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
+          salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
+        });
+        
+        // Convert to array and sort by sales amount
+        const employeeSalesArray = Object.entries(salesByEmployee)
+          .map(([name, amount]) => ({ name, amount }))
+          .sort((a, b) => b.amount - a.amount);
+          
+        setEmployeeSales(employeeSalesArray);
       } catch (err: any) {
         setError(err.message || 'Failed to load sales data');
       } finally {
@@ -103,10 +142,23 @@ const Sales = () => {
       // Re-fetch data
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
-        .select('id, created_at, payment_method, total, order_items(id, flavor_id, flavor_name, scoops, price)')
+        .select('id, created_at, payment_method, total, staff_id, order_items(id, flavor_id, flavor_name, scoops, price)')
         .eq('status', 'delivered')
         .order('created_at', { ascending: false });
       if (ordersError) throw ordersError;
+      
+      // Re-fetch staff names
+      const { data: staffMembers, error: staffError } = await supabase
+        .from('staff')
+        .select('id, name');
+      if (staffError) throw staffError;
+
+      // Create staff lookup map
+      const staffMap = (staffMembers || []).reduce((acc: Record<string, string>, member: any) => {
+        acc[member.id] = member.name;
+        return acc;
+      }, {});
+      
       const salesRows: any[] = [];
       (orders || []).forEach(order => {
         (order.order_items || []).forEach(item => {
@@ -118,11 +170,54 @@ const Sales = () => {
             unitPrice: item.price,
             total: item.price * (item.scoops || 1),
             paymentMethod: order.payment_method || 'N/A',
+            staffId: order.staff_id,
+            staffName: staffMap[order.staff_id] || 'Unknown',
           });
         });
       });
       setSales(salesRows);
       setFilteredSales(salesRows);
+      
+      // Weekly sales (last 8 weeks)
+      const salesByWeek: Record<string, number> = {};
+      (orders || []).forEach(order => {
+        const orderDate = new Date(order.created_at);
+        const weekStart = startOfWeek(orderDate, { weekStartsOn: 1 }); // Week starts on Monday
+        const key = format(weekStart, 'yyyy-MM-dd');
+        salesByWeek[key] = (salesByWeek[key] || 0) + (order.total || 0);
+      });
+
+      const weeks = [];
+      const now = new Date();
+      for (let i = 7; i >= 0; i--) {
+        const weekStart = startOfWeek(subWeeks(now, i), { weekStartsOn: 1 });
+        const weekEnd = endOfWeek(subWeeks(now, i), { weekStartsOn: 1 });
+        const key = format(weekStart, 'yyyy-MM-dd');
+        
+        // Format as "MMM dd-dd" (e.g., "Jul 10-16")
+        const weekLabel = `${format(weekStart, 'MMM dd')}-${format(weekEnd, 'dd')}`;
+        
+        weeks.push({
+          week: weekLabel,
+          amount: salesByWeek[key] || 0
+        });
+      }
+      setWeeklySales(weeks);
+      
+      // Calculate sales per employee
+      const salesByEmployee: Record<string, number> = {};
+      (orders || []).forEach(order => {
+        const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
+        salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
+      });
+      
+      // Convert to array and sort by sales amount
+      const employeeSalesArray = Object.entries(salesByEmployee)
+        .map(([name, amount]) => ({ name, amount }))
+        .sort((a, b) => b.amount - a.amount);
+        
+      setEmployeeSales(employeeSalesArray);
+      
       toast({
         title: 'Data Refreshed',
         description: 'Sales data has been refreshed.'
@@ -169,6 +264,7 @@ const Sales = () => {
                   { key: 'unitPrice', label: 'Unit Price' },
                   { key: 'total', label: 'Total' },
                   { key: 'paymentMethod', label: 'Payment Method' },
+                  { key: 'staffName', label: 'Staff Member' },
                 ]
               )}
               disabled={loading}
@@ -199,26 +295,58 @@ const Sales = () => {
           </CardHeader>
         </Card>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Monthly Sales</CardTitle>
-          <CardDescription>Revenue over the past 6 months</CardDescription>
-        </CardHeader>
-        <CardContent className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={loading ? [] : monthlySales}
-              margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="month" stroke="#888888" />
-              <YAxis stroke="#888888" />
-              <Tooltip />
-              <Bar dataKey="amount" name="Sales Revenue" fill="#9b87f5" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Weekly Sales</CardTitle>
+            <CardDescription>Revenue over the past 8 weeks</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={loading ? [] : weeklySales}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="week" stroke="#888888" />
+                <YAxis stroke="#888888" />
+                <Tooltip />
+                <Bar dataKey="amount" name="Sales Revenue" fill="#9b87f5" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales per Employee</CardTitle>
+            <CardDescription>Distribution of sales by staff member</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={loading ? [] : employeeSales}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={true}
+                  label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="amount"
+                  nameKey="name"
+                >
+                  {employeeSales.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={EMPLOYEE_COLORS[index % EMPLOYEE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `GHS${Number(value).toFixed(2)}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+      
       <div className="flex gap-2 items-center mb-2">
         <label>From:</label>
         <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
@@ -245,6 +373,7 @@ const Sales = () => {
             { key: 'unitPrice', label: 'Unit Price' },
             { key: 'total', label: 'Total' },
             { key: 'paymentMethod', label: 'Payment Method' },
+            { key: 'staffName', label: 'Staff Member' },
           ]
         )}
         disabled={loading}
@@ -280,6 +409,10 @@ const Sales = () => {
             header: "Payment",
             cell: (row: any) => <div className="capitalize">{row.paymentMethod}</div>,
             accessorKey: "paymentMethod"
+          },
+          {
+            header: "Staff",
+            accessorKey: "staffName",
           },
         ]}
         title="Sales Transactions"

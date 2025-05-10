@@ -36,8 +36,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { Pencil, Trash2, Plus } from 'lucide-react';
+import { Pencil, Trash2, Plus, Clock, Calendar } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { format, parseISO, differenceInMinutes, addDays, startOfWeek, endOfWeek } from 'date-fns';
 
 // Type for menu items
 interface MenuItem {
@@ -46,6 +47,16 @@ interface MenuItem {
   category: string;
   price: number;
   description: string | null;
+}
+
+// Type for staff attendance records
+interface StaffAttendance {
+  id: string;
+  staff_id: string;
+  staff_name?: string;
+  login_time: string;
+  logout_time: string | null;
+  total_minutes?: number;
 }
 
 // List of menu categories
@@ -77,6 +88,11 @@ const Settings = () => {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: '', pin: '', role: 'staff' });
+  
+  // Staff attendance tracking
+  const [staffAttendance, setStaffAttendance] = useState<StaffAttendance[]>([]);
+  const [dailyHours, setDailyHours] = useState<Record<string, any>>({});
+  const [selectedWeek, setSelectedWeek] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   
   // Menu items state
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -133,8 +149,97 @@ const Settings = () => {
         }
       };
       fetchMenuItems();
+      
+      // Fetch staff attendance data
+      fetchStaffAttendance();
     }
-  }, [isAdmin]);
+  }, [isAdmin, selectedWeek]);
+  
+  // Function to fetch staff attendance data for the selected week
+  const fetchStaffAttendance = async () => {
+    try {
+      // Calculate the start and end dates for the selected week
+      const weekStart = startOfWeek(parseISO(selectedWeek), { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(parseISO(selectedWeek), { weekStartsOn: 1 });
+      
+      // Format dates for query
+      const startDate = format(weekStart, 'yyyy-MM-dd');
+      const endDate = format(weekEnd, 'yyyy-MM-dd');
+      
+      // Fetch attendance records for the selected week
+      const { data, error } = await supabase
+        .from('staff_attendance')
+        .select('id, staff_id, login_time, logout_time')
+        .gte('login_time', `${startDate}T00:00:00`)
+        .lte('login_time', `${endDate}T23:59:59`)
+        .order('login_time', { ascending: false });
+        
+      if (error) {
+        console.error('Error fetching staff attendance:', error);
+        return;
+      }
+      
+      // Add staff names to the attendance records
+      const attendanceWithNames = await Promise.all(
+        (data || []).map(async (record) => {
+          const { data: staffData } = await supabase
+            .from('staff')
+            .select('name')
+            .eq('id', record.staff_id)
+            .single();
+            
+          // Calculate total minutes worked if there's a logout time
+          let totalMinutes = null;
+          if (record.logout_time) {
+            totalMinutes = differenceInMinutes(
+              new Date(record.logout_time),
+              new Date(record.login_time)
+            );
+          }
+          
+          return {
+            ...record,
+            staff_name: staffData?.name || 'Unknown',
+            total_minutes: totalMinutes
+          };
+        })
+      );
+      
+      setStaffAttendance(attendanceWithNames);
+      
+      // Calculate daily hours per staff member
+      const hours: Record<string, any> = {};
+      
+      attendanceWithNames.forEach(record => {
+        if (!record.total_minutes) return;
+        
+        const day = format(new Date(record.login_time), 'yyyy-MM-dd');
+        const staffId = record.staff_id;
+        const staffName = record.staff_name;
+        
+        if (!hours[staffId]) {
+          hours[staffId] = { 
+            name: staffName,
+            days: {},
+            totalHours: 0 
+          };
+        }
+        
+        if (!hours[staffId].days[day]) {
+          hours[staffId].days[day] = 0;
+        }
+        
+        // Add hours worked for this record
+        hours[staffId].days[day] += record.total_minutes / 60;
+        hours[staffId].totalHours += record.total_minutes / 60;
+      });
+      
+      setDailyHours(hours);
+      
+    } catch (err) {
+      console.error('Error processing attendance data:', err);
+    }
+  };
 
   const saveSettings = async (overrides = {}) => {
     const upsertData = {
@@ -532,6 +637,118 @@ const Settings = () => {
                       ))}
                     </tbody>
                   </table>
+                </div>
+                
+                {/* Staff Work Hours Section */}
+                <div className="mt-8">
+                  <div className="flex justify-between items-center mb-4">
+                    <div className="text-lg font-semibold">Staff Work Hours</div>
+                    <div className="flex items-center space-x-2">
+                      <Label htmlFor="week-select">Week:</Label>
+                      <Input
+                        id="week-select"
+                        type="date"
+                        value={selectedWeek}
+                        onChange={(e) => setSelectedWeek(e.target.value)}
+                        className="w-40"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Daily Hours Summary */}
+                  <div className="space-y-4">
+                    {Object.keys(dailyHours).length > 0 ? (
+                      Object.entries(dailyHours).map(([staffId, data]: [string, any]) => (
+                        <Card key={staffId} className="overflow-hidden">
+                          <CardHeader className="py-3">
+                            <div className="flex justify-between items-center">
+                              <CardTitle className="text-base">{data.name}</CardTitle>
+                              <div className="text-sm font-medium text-muted-foreground">
+                                Total: {data.totalHours.toFixed(1)} hours
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                              <table className="w-full divide-y divide-muted">
+                                <thead className="bg-muted">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium">Date</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium">Hours Worked</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-muted">
+                                  {Object.entries(data.days).map(([day, hours]: [string, any]) => (
+                                    <tr key={day}>
+                                      <td className="px-4 py-2 text-sm">
+                                        {format(parseISO(day), 'MMM dd, yyyy (EEE)')}
+                                      </td>
+                                      <td className="px-4 py-2 text-sm text-right font-medium">
+                                        {Number(hours).toFixed(1)} h
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Clock className="mx-auto h-12 w-12 opacity-20 mb-2" />
+                        <p>No work hours data available for the selected week.</p>
+                        <p className="text-sm">Work hours are tracked automatically when staff login and logout.</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Recent Attendance Records */}
+                  <div className="mt-6">
+                    <div className="text-md font-semibold mb-3">Recent Attendance Records</div>
+                    <div className="overflow-x-auto rounded-lg border border-muted">
+                      <table className="min-w-full divide-y divide-muted bg-white">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Staff Name</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Login Time</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Logout Time</th>
+                            <th className="px-4 py-2 text-right text-xs font-medium">Hours Worked</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {staffAttendance.length > 0 ? (
+                            staffAttendance.map((record) => (
+                              <tr key={record.id} className="even:bg-muted/50">
+                                <td className="px-4 py-2">{record.staff_name}</td>
+                                <td className="px-4 py-2">
+                                  {format(new Date(record.login_time), 'MMM dd, yyyy HH:mm')}
+                                </td>
+                                <td className="px-4 py-2">
+                                  {record.logout_time 
+                                    ? format(new Date(record.logout_time), 'MMM dd, yyyy HH:mm')
+                                    : <span className="text-amber-500">Still Active</span>
+                                  }
+                                </td>
+                                <td className="px-4 py-2 text-right">
+                                  {record.total_minutes 
+                                    ? `${(record.total_minutes / 60).toFixed(1)} h`
+                                    : '-'
+                                  }
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-4 text-center text-muted-foreground">
+                                No attendance records found for the selected week.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>

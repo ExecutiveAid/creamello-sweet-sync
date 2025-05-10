@@ -19,13 +19,19 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [staff, setStaff] = useState<Staff | null>(null);
   const [loading, setLoading] = useState(false);
+  const [currentAttendanceRecord, setCurrentAttendanceRecord] = useState<string | null>(null);
 
   // Restore staff from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem('creamello_staff');
+    const attendanceId = localStorage.getItem('creamello_attendance_id');
+    
     if (stored) {
       try {
         setStaff(JSON.parse(stored));
+        if (attendanceId) {
+          setCurrentAttendanceRecord(attendanceId);
+        }
       } catch {}
     }
   }, []);
@@ -56,6 +62,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         role: matchedStaff.role 
       };
       
+      // Create attendance record for login
+      try {
+        const now = new Date().toISOString();
+        const { data: attendanceData, error: attendanceError } = await supabase
+          .from('staff_attendance')
+          .insert([
+            {
+              staff_id: staffObj.id,
+              login_time: now,
+              logout_time: null
+            }
+          ])
+          .select('id')
+          .single();
+          
+        if (attendanceError) {
+          console.error('Error creating attendance record:', attendanceError);
+        } else if (attendanceData) {
+          // Store the attendance record ID for logout
+          setCurrentAttendanceRecord(attendanceData.id);
+          localStorage.setItem('creamello_attendance_id', attendanceData.id);
+        }
+      } catch (attendanceErr) {
+        console.error('Error logging attendance:', attendanceErr);
+      }
+      
       setStaff(staffObj);
       localStorage.setItem('creamello_staff', JSON.stringify(staffObj));
       setLoading(false);
@@ -67,7 +99,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // If we have an open attendance record, update it with logout time
+    if (currentAttendanceRecord) {
+      try {
+        const now = new Date().toISOString();
+        await supabase
+          .from('staff_attendance')
+          .update({ logout_time: now })
+          .eq('id', currentAttendanceRecord);
+          
+        setCurrentAttendanceRecord(null);
+        localStorage.removeItem('creamello_attendance_id');
+      } catch (err) {
+        console.error('Error updating attendance record on logout:', err);
+      }
+    }
+    
     setStaff(null);
     localStorage.removeItem('creamello_staff');
   };

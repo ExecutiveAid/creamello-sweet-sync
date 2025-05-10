@@ -95,6 +95,100 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const updateOrderStatus = async (orderId: string, status: Order['status']) => {
     setOrders(prev => prev.map(order => order.id === orderId ? { ...order, status } : order));
     await supabase.from('orders').update({ status }).eq('id', orderId);
+
+    // Deduct from production batch if delivered
+    if (status === 'delivered') {
+      console.log(`Order ${orderId} marked as delivered, deducting from production batches...`);
+      // Fetch the order and its items
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('*, order_items(*)')
+        .eq('id', orderId)
+        .single();
+      if (orderError || !orderData) {
+        console.error("Error fetching order data:", orderError);
+        return;
+      }
+      const items = orderData.order_items || [];
+      console.log(`Processing ${items.length} items from order ${orderId}`);
+      
+      for (const item of items) {
+        // Determine deduction amount and unit
+        let deduction = 0;
+        let unit = '';
+        let productName = item.flavor_name;
+        // Try to fetch the menu item to get the category
+        let category = '';
+        const { data: menuItem } = await supabase
+          .from('menu_items')
+          .select('category')
+          .eq('name', productName)
+          .single();
+        if (menuItem) category = menuItem.category;
+        console.log(`Item: ${productName}, Category: ${category}, Scoops/Quantity: ${item.scoops || 1}`);
+        
+        if (category === 'Flavors') {
+          deduction = (item.scoops || 1) * 100; // 100g per scoop
+          unit = 'g';
+        } else if (category === 'Milkshakes') {
+          deduction = (item.scoops || 1) * 250; // 250ml per order
+          unit = 'ml';
+        } else if (category === 'Juice') {
+          deduction = (item.scoops || 1) * 250; // 250ml per order
+          unit = 'ml';
+        } else if (category === 'Sundaes' && productName.toLowerCase().includes('cone')) {
+          deduction = (item.scoops || 1) * 1; // 1 per order
+          unit = 'pcs';
+        } else {
+          // Default: try to deduct by quantity if possible
+          deduction = (item.scoops || 1);
+          unit = '';
+        }
+        console.log(`Calculated deduction: ${deduction}${unit}`);
+        
+        // Find the most recent production batch for this product
+        const { data: batch, error: batchError } = await supabase
+          .from('production_batches')
+          .select('*')
+          .eq('product_name', productName)
+          .order('production_date', { ascending: false })
+          .limit(1)
+          .single();
+          
+        if (batchError) {
+          console.error(`No batch found for ${productName}:`, batchError.message);
+          continue;
+        }
+          
+        if (batch && batch.available_quantity > 0) {
+          let newQty = batch.available_quantity;
+          let originalDeduction = deduction;
+          
+          // Convert units if needed
+          if (batch.unit === 'kg' && unit === 'g') {
+            deduction = deduction / 1000; // convert g to kg
+            console.log(`Converting ${originalDeduction}g to ${deduction}kg`);
+          } else if (batch.unit === 'L' && unit === 'ml') {
+            deduction = deduction / 1000; // convert ml to L
+            console.log(`Converting ${originalDeduction}ml to ${deduction}L`);
+          }
+          
+          newQty = Math.max(0, newQty - deduction);
+          console.log(`Deducting ${deduction}${batch.unit} from batch ${batch.id} for ${productName}`);
+          console.log(`Previous quantity: ${batch.available_quantity}${batch.unit}, New quantity: ${newQty}${batch.unit}`);
+          
+          await supabase
+            .from('production_batches')
+            .update({ available_quantity: newQty })
+            .eq('id', batch.id);
+          
+          console.log(`✅ Successfully updated batch ${batch.id}`);
+        } else {
+          console.warn(`❌ No available inventory for ${productName}`);
+        }
+      }
+      console.log(`✅ Finished processing order ${orderId}`);
+    }
   };
 
   const getOrdersByStatus = (status?: Order['status']) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import {
@@ -20,10 +20,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 // Type definition for production batch (matching Supabase schema)
 interface ProductionBatch {
@@ -35,7 +36,15 @@ interface ProductionBatch {
   status: 'completed' | 'in-progress' | 'planned';
   production_date: string;
   notes?: string;
+  available_quantity?: number;
 }
+
+// Interface to track which batches have already triggered low inventory warnings
+interface LowInventoryAlerts {
+  [batchId: string]: boolean;
+}
+
+const LOW_INVENTORY_THRESHOLD = 0.3; // 30% threshold
 
 const Production = () => {
   const [batches, setBatches] = useState<ProductionBatch[]>([]);
@@ -54,26 +63,137 @@ const Production = () => {
     production_date: format(new Date(), 'yyyy-MM-dd'),
     notes: '',
   });
+  
+  // Use a ref to track which batches have already triggered low inventory warnings
+  // This prevents duplicate warnings on every refresh/rerender
+  const lowInventoryAlertsRef = useRef<LowInventoryAlerts>({});
+
+  // Check for low inventory and show warnings
+  const checkLowInventory = (batchData: ProductionBatch[]) => {
+    batchData.forEach(batch => {
+      // Only check completed batches
+      if (batch.status !== 'completed') return;
+      
+      // Check if available quantity exists and is below threshold
+      if (
+        batch.id && 
+        batch.available_quantity !== undefined && 
+        batch.quantity > 0 && 
+        batch.available_quantity < batch.quantity * LOW_INVENTORY_THRESHOLD
+      ) {
+        // Only show warning if we haven't shown it before for this batch at this level
+        if (!lowInventoryAlertsRef.current[batch.id]) {
+          // Format the units appropriately
+          let unit = batch.unit;
+          if (batch.category.toLowerCase().includes('flavor') || batch.category.toLowerCase().includes('gelato')) {
+            unit = 'kg';
+          } else if (batch.category.toLowerCase().includes('milkshake') || batch.category.toLowerCase().includes('juice')) {
+            unit = 'L';
+          } else if (batch.category.toLowerCase().includes('cone')) {
+            unit = 'pcs';
+          }
+          
+          // Mark this batch as having received a warning
+          lowInventoryAlertsRef.current[batch.id] = true;
+          
+          // Show the toast warning
+          toast({
+            title: "Low Inventory Alert",
+            description: `${batch.product_name} is running low! Only ${batch.available_quantity} ${unit} remaining (${Math.round(batch.available_quantity / batch.quantity * 100)}% left)`,
+            variant: "destructive",
+            duration: 5000,
+          });
+        }
+      }
+      // Reset the alert if inventory has been replenished (e.g., through a new batch)
+      else if (
+        batch.id && 
+        batch.available_quantity !== undefined && 
+        batch.quantity > 0 && 
+        batch.available_quantity >= batch.quantity * LOW_INVENTORY_THRESHOLD && 
+        lowInventoryAlertsRef.current[batch.id]
+      ) {
+        // Remove the warning flag so it can trigger again if it drops below threshold
+        delete lowInventoryAlertsRef.current[batch.id];
+      }
+    });
+  };
+
+  const fetchBatches = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('production_batches')
+        .select('*')
+        .order('production_date', { ascending: false });
+      if (fetchError) throw fetchError;
+      console.log('Fetched production batches:', data);
+      setBatches(data || []);
+      setFilteredBatches(data || []);
+      
+      // Check for low inventory after fetching data
+      checkLowInventory(data || []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load production batches');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchBatches = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const { data, error: fetchError } = await supabase
-          .from('production_batches')
-          .select('*')
-          .order('production_date', { ascending: false });
-        if (fetchError) throw fetchError;
-        setBatches(data || []);
-        setFilteredBatches(data || []);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load production batches');
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchBatches();
+
+    // Set up real-time subscription to production_batches table
+    const subscription = supabase
+      .channel('production_batches_changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'production_batches' }, 
+        (payload) => {
+          console.log('Production batch change detected:', payload);
+          
+          // If a single batch was updated and it's below threshold, show a warning immediately
+          if (payload.eventType === 'UPDATE' && payload.new && payload.new.quantity && payload.new.available_quantity) {
+            const batch = payload.new as ProductionBatch;
+            if (
+              batch.status === 'completed' && 
+              batch.available_quantity < batch.quantity * LOW_INVENTORY_THRESHOLD &&
+              batch.id && 
+              !lowInventoryAlertsRef.current[batch.id]
+            ) {
+              // Format the units appropriately
+              let unit = batch.unit;
+              if (batch.category?.toLowerCase().includes('flavor') || batch.category?.toLowerCase().includes('gelato')) {
+                unit = 'kg';
+              } else if (batch.category?.toLowerCase().includes('milkshake') || batch.category?.toLowerCase().includes('juice')) {
+                unit = 'L';
+              } else if (batch.category?.toLowerCase().includes('cone')) {
+                unit = 'pcs';
+              }
+              
+              // Mark this batch as having received a warning
+              lowInventoryAlertsRef.current[batch.id] = true;
+              
+              // Show the toast warning immediately
+              toast({
+                title: "Low Inventory Alert",
+                description: `${batch.product_name} is running low! Only ${batch.available_quantity} ${unit} remaining (${Math.round(batch.available_quantity / batch.quantity * 100)}% left)`,
+                variant: "destructive",
+                duration: 5000,
+              });
+            }
+          }
+          
+          // Refresh all batches when any change occurs
+          fetchBatches();
+        }
+      )
+      .subscribe();
+
+    // Clean up subscription on unmount
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   // Handle search
@@ -89,22 +209,8 @@ const Production = () => {
   }, [searchQuery, batches]);
 
   const handleRefresh = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: fetchError } = await supabase
-        .from('production_batches')
-        .select('*')
-        .order('production_date', { ascending: false });
-      if (fetchError) throw fetchError;
-      setBatches(data || []);
-      setFilteredBatches(data || []);
-      toast({ title: 'Production Refreshed', description: 'Production data has been refreshed.' });
-    } catch (err: any) {
-      setError(err.message || 'Failed to refresh production batches');
-    } finally {
-      setLoading(false);
-    }
+    fetchBatches();
+    toast({ title: 'Production Refreshed', description: 'Production data has been refreshed.' });
   };
 
   const getStatusBadge = (status: string) => {
@@ -118,6 +224,14 @@ const Production = () => {
       default:
         return <Badge>{status}</Badge>;
     }
+  };
+
+  // Helper to suggest unit based on category
+  const getSuggestedUnit = (category: string) => {
+    if (category.toLowerCase().includes('flavor') || category.toLowerCase().includes('gelato')) return 'kg';
+    if (category.toLowerCase().includes('milkshake') || category.toLowerCase().includes('juice')) return 'L';
+    if (category.toLowerCase().includes('cone')) return 'pcs';
+    return '';
   };
 
   return (
@@ -134,6 +248,50 @@ const Production = () => {
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}
+      
+      {/* Low Inventory Alert Section */}
+      {batches.filter(b => 
+        b.status === 'completed' && 
+        b.available_quantity !== undefined && 
+        b.quantity > 0 && 
+        b.available_quantity < b.quantity * LOW_INVENTORY_THRESHOLD
+      ).length > 0 && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md mb-6">
+          <div className="flex items-center">
+            <AlertTriangle className="h-6 w-6 text-red-500 mr-3" />
+            <h3 className="text-lg font-bold text-red-700">Low Inventory Alert</h3>
+          </div>
+          <div className="mt-2">
+            <p className="text-red-700 mb-2">The following products are running low and need to be replenished:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              {batches.filter(b => 
+                b.status === 'completed' && 
+                b.available_quantity !== undefined && 
+                b.quantity > 0 && 
+                b.available_quantity < b.quantity * LOW_INVENTORY_THRESHOLD
+              ).map(batch => {
+                let unit = batch.unit;
+                if (batch.category.toLowerCase().includes('flavor') || batch.category.toLowerCase().includes('gelato')) {
+                  unit = 'kg';
+                } else if (batch.category.toLowerCase().includes('milkshake') || batch.category.toLowerCase().includes('juice')) {
+                  unit = 'L';
+                } else if (batch.category.toLowerCase().includes('cone')) {
+                  unit = 'pcs';
+                }
+                
+                const percentRemaining = Math.round((batch.available_quantity || 0) / batch.quantity * 100);
+                
+                return (
+                  <li key={batch.id} className="text-red-700">
+                    <span className="font-semibold">{batch.product_name}</span>: Only {batch.available_quantity?.toFixed(2)} {unit} remaining ({percentRemaining}%)
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
+      
       <DataTable
         data={loading ? [] : filteredBatches}
         columns={[
@@ -152,7 +310,46 @@ const Production = () => {
           },
           {
             header: "Quantity",
-            cell: (row: ProductionBatch) => <div>{row.quantity} {row.unit}</div>,
+            cell: (row: ProductionBatch) => {
+              let unit = row.unit;
+              let note = '';
+              if (row.category.toLowerCase().includes('flavor') || row.category.toLowerCase().includes('gelato')) {
+                unit = 'kg';
+                note = ' (deducted in grams)';
+              } else if (row.category.toLowerCase().includes('milkshake') || row.category.toLowerCase().includes('juice')) {
+                unit = 'L';
+                note = ' (deducted in ml)';
+              } else if (row.category.toLowerCase().includes('cone')) {
+                unit = 'pcs';
+              }
+              
+              // Calculate percentage remaining
+              const availableQty = row.available_quantity !== undefined ? row.available_quantity : row.quantity;
+              const percentRemaining = row.quantity > 0 ? (availableQty / row.quantity) * 100 : 100;
+              const isLow = percentRemaining < LOW_INVENTORY_THRESHOLD * 100;
+              const isWarning = percentRemaining < 50 && !isLow;
+              
+              return (
+                <div className="flex flex-col space-y-2">
+                  <div>Total: {row.quantity} {unit}{note}</div>
+                  <div className={isLow ? "text-red-500 font-bold" : isWarning ? "text-amber-500" : ""}>
+                    Available: {availableQty.toFixed(2)} {unit}
+                    {isLow && <AlertTriangle className="inline-block ml-2 h-4 w-4 text-red-500" />}
+                  </div>
+                  
+                  {/* Progress bar */}
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div 
+                      className={`h-2.5 rounded-full ${
+                        isLow ? 'bg-red-500' : isWarning ? 'bg-amber-500' : 'bg-green-500'
+                      }`}
+                      style={{ width: `${Math.min(percentRemaining, 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-gray-500">{Math.round(percentRemaining)}% remaining</div>
+                </div>
+              );
+            },
             accessorKey: "quantity"
           },
           {
@@ -204,7 +401,7 @@ const Production = () => {
           <DialogHeader>
             <DialogTitle>New Production Batch</DialogTitle>
             <DialogDescription>
-              Schedule a new production batch for gelato making.
+              Schedule a new production batch for gelato, milkshake, juice, or cones.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -226,7 +423,10 @@ const Production = () => {
               <Input
                 id="category"
                 value={newBatch.category}
-                onChange={(e) => setNewBatch({ ...newBatch, category: e.target.value })}
+                onChange={(e) => {
+                  const cat = e.target.value;
+                  setNewBatch({ ...newBatch, category: cat, unit: getSuggestedUnit(cat) });
+                }}
                 className="col-span-3"
               />
             </div>
@@ -263,6 +463,7 @@ const Production = () => {
                 value={newBatch.unit}
                 onChange={(e) => setNewBatch({ ...newBatch, unit: e.target.value })}
                 className="col-span-3"
+                placeholder={getSuggestedUnit(newBatch.category)}
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -319,21 +520,18 @@ const Production = () => {
                 try {
                   const { error } = await supabase
                     .from('production_batches')
-                    .insert([newBatch]);
+                    .insert([{
+                      ...newBatch,
+                      available_quantity: newBatch.quantity // Set available_quantity equal to quantity initially
+                    }]);
                   if (error) throw error;
                   toast({
                     title: "Production Batch Added",
                     description: `${newBatch.product_name} batch has been added to production schedule.`
                   });
                   setDialogOpen(false);
-                  // Refresh the list
-                  const { data, error: fetchError } = await supabase
-                    .from('production_batches')
-                    .select('*')
-                    .order('production_date', { ascending: false });
-                  if (fetchError) throw fetchError;
-                  setBatches(data || []);
-                  setFilteredBatches(data || []);
+                  // Refresh the list using our common fetchBatches function
+                  fetchBatches();
                   // Reset form
                   setNewBatch({
                     product_name: '',

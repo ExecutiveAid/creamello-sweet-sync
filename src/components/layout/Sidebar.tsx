@@ -70,7 +70,6 @@ export const AppSidebar = () => {
           {(isAdminOrManager || role === 'staff') && (
             <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
           )}
-          {isAdminOrManager && <NavItem to="/ingredients" icon={Database}>Ingredients</NavItem>}
           {isAdminOrManager && <NavItem to="/production" icon={ClipboardList}>Production</NavItem>}
           {isAdminOrManager && <NavItem to="/inventory" icon={Package}>Inventory</NavItem>}
           <NavItem to="/orders" icon={IceCreamCone} highlighted={true}>Orders</NavItem>
