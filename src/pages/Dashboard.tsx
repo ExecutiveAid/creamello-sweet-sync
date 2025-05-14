@@ -317,9 +317,9 @@ const Dashboard = () => {
           trendValue=""
         />
         <DashboardCard
-          title="Active Staff"
-          value={loading ? 'Loading...' : employeeSales.length.toString()}
-          description="Staff with recorded sales"
+          title="Least Selling Product"
+          value={loading || !productPerformance.length ? 'Loading...' : productPerformance.length > 0 ? (productPerformance[productPerformance.length - 1]?.name || 'N/A') : 'N/A'}
+          description="Product with lowest sales"
           icon={null}
           trend={null}
           trendValue=""
