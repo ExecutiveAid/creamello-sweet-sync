@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, addDays, subDays } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,6 +22,36 @@ interface HourlyData {
   displayHour: string; // More readable hour format
 }
 
+// First add the necessary interface definitions near the top
+interface ProductPerformanceRow {
+  name: string;
+  sales: number;
+}
+
+interface PaymentMethodRow {
+  name: string;
+  value: number;
+}
+
+// Add EmployeeSalesRow interface
+interface EmployeeSalesRow {
+  name: string;
+  amount: number;
+}
+
+// Add DailySalesRow interface
+interface DailySalesRow {
+  day: string;
+  amount: number;
+}
+
+// Add interface for OrderStatusData
+interface OrderStatusData {
+  name: string;
+  value: number;
+  color: string;
+}
+
 const Sales = () => {
   const { staff } = useAuth();
   const isAdmin = staff?.role === 'admin';
@@ -33,6 +63,16 @@ const Sales = () => {
   const [weeklySales, setWeeklySales] = useState<any[]>([]);
   const [hourlyData, setHourlyData] = useState<HourlyData[]>([]);
   const [totalStockValue, setTotalStockValue] = useState(0);
+  
+  // Add new state variables for Product Performance and Payment Methods
+  const [productPerformance, setProductPerformance] = useState<ProductPerformanceRow[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
+  // Add state for employee sales
+  const [employeeSales, setEmployeeSales] = useState<EmployeeSalesRow[]>([]);
+  // Add state for daily sales
+  const [dailySales, setDailySales] = useState<DailySalesRow[]>([]);
+  // Add state for order status data
+  const [orderStatusData, setOrderStatusData] = useState<OrderStatusData[]>([]);
   
   // Set default date range to past 24 hours (no longer exposed to user)
   const startDate = format(subDays(new Date(), 1), 'yyyy-MM-dd');
@@ -46,11 +86,11 @@ const Sales = () => {
       setLoading(true);
       setError(null);
       try {
-        // Fetch all completed orders and their items
+        // Fetch all orders including both completed and cancelled
         const { data: orders, error: ordersError } = await supabase
           .from('orders')
           .select('id, created_at, payment_method, total, staff_id, status, order_items(id, flavor_id, flavor_name, scoops, price)')
-          .eq('status', 'completed')
+          .in('status', ['completed', 'cancelled'])
           .order('created_at', { ascending: false });
         if (ordersError) throw ordersError;
 
@@ -86,7 +126,7 @@ const Sales = () => {
         setSales(salesRows);
         setFilteredSales(salesRows);
 
-        // Weekly sales (last 8 weeks)
+        // Weekly sales (last 8 weeks) - we still calculate this even if not shown
         const salesByWeek: Record<string, number> = {};
         (orders || []).forEach(order => {
           const orderDate = new Date(order.created_at);
@@ -111,6 +151,24 @@ const Sales = () => {
           });
         }
         setWeeklySales(weeks);
+        
+        // Daily Sales (last 14 days)
+        const salesByDay: Record<string, number> = {};
+        (orders || []).forEach(order => {
+          const day = order.created_at.slice(0, 10);
+          salesByDay[day] = (salesByDay[day] || 0) + (order.total || 0);
+        });
+        
+        const days = [];
+        for (let i = 13; i >= 0; i--) {
+          const d = subDays(now, i);
+          const key = format(d, 'yyyy-MM-dd');
+          days.push({
+            day: format(d, 'dd MMM'),
+            amount: salesByDay[key] || 0
+          });
+        }
+        setDailySales(days);
         
         // Calculate hourly data for peak hours graph
         const hourlyStats: Record<string, { orderCount: number, revenue: number }> = {};
@@ -171,6 +229,80 @@ const Sales = () => {
           });
         
         setHourlyData(hourlyDataArray);
+
+        // Product Performance (top-selling menu items)
+        const itemSales: Record<string, { name: string, sales: number }> = {};
+        (orders || []).forEach(order => {
+          (order.order_items || []).forEach(item => {
+            const name = item.flavor_name || item.flavor_id || 'N/A';
+            itemSales[name] = itemSales[name] || { name, sales: 0 };
+            itemSales[name].sales += item.scoops || 1;
+          });
+        });
+        const perf = Object.values(itemSales)
+          .sort((a, b) => b.sales - a.sales)
+          .slice(0, 4);
+        setProductPerformance(perf);
+
+        // Calculate payment method distribution
+        const paymentMethodCounts: Record<string, number> = {};
+        (orders || []).forEach(order => {
+          if (order.status === 'completed') {
+            const method = order.payment_method || 'Unknown';
+            paymentMethodCounts[method] = (paymentMethodCounts[method] || 0) + 1;
+          }
+        });
+
+        // Convert to array for the chart
+        const paymentMethodsArray = Object.entries(paymentMethodCounts)
+          .map(([name, value]) => ({ 
+            name: name.charAt(0).toUpperCase() + name.slice(1), // Capitalize first letter
+            value 
+          }))
+          .sort((a, b) => b.value - a.value);
+
+        setPaymentMethods(paymentMethodsArray);
+        
+        // Calculate sales per employee
+        const salesByEmployee: Record<string, number> = {};
+        (orders || []).forEach(order => {
+          if (order.staff_id) {
+            const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
+            salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
+          }
+        });
+        
+        // Convert to array and sort by sales amount
+        const employeeSalesArray = Object.entries(salesByEmployee)
+          .map(([name, amount]) => ({ name, amount }))
+          .sort((a, b) => b.amount - a.amount);
+          
+        setEmployeeSales(employeeSalesArray);
+        
+        // Process orders by status (completed vs cancelled)
+        const ordersByStatus: Record<string, number> = {};
+        (orders || []).forEach(order => {
+          const status = order.status || 'unknown';
+          ordersByStatus[status] = (ordersByStatus[status] || 0) + 1;
+        });
+        
+        // Prepare data for the chart with specific colors
+        const statusColors: Record<string, string> = {
+          completed: "#4CAF50", // green
+          cancelled: "#F44336", // red
+          unknown: "#9E9E9E"    // gray
+        };
+        
+        const statusData = Object.entries(ordersByStatus)
+          .map(([name, value]) => ({
+            name: name.charAt(0).toUpperCase() + name.slice(1), // Capitalize first letter
+            value,
+            color: statusColors[name] || "#9E9E9E" // Default to gray if status not in our color map
+          }))
+          .sort((a, b) => b.value - a.value);
+          
+        setOrderStatusData(statusData);
+        
       } catch (err: any) {
         setError(err.message || 'Failed to load sales data');
       } finally {
@@ -206,7 +338,7 @@ const Sales = () => {
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
         .select('id, created_at, payment_method, total, staff_id, status, order_items(id, flavor_id, flavor_name, scoops, price)')
-        .eq('status', 'completed')
+        .in('status', ['completed', 'cancelled'])
         .order('created_at', { ascending: false });
       if (ordersError) throw ordersError;
 
@@ -329,6 +461,30 @@ const Sales = () => {
       // Also refresh the inventory data
       await fetchInventoryData();
       
+      // Process orders by status (completed vs cancelled)
+      const ordersByStatus: Record<string, number> = {};
+      (orders || []).forEach(order => {
+        const status = order.status || 'unknown';
+        ordersByStatus[status] = (ordersByStatus[status] || 0) + 1;
+      });
+      
+      // Prepare data for the chart with specific colors
+      const statusColors: Record<string, string> = {
+        completed: "#4CAF50", // green
+        cancelled: "#F44336", // red
+        unknown: "#9E9E9E"    // gray
+      };
+      
+      const statusData = Object.entries(ordersByStatus)
+        .map(([name, value]) => ({
+          name: name.charAt(0).toUpperCase() + name.slice(1), // Capitalize first letter
+          value,
+          color: statusColors[name] || "#9E9E9E" // Default to gray if status not in our color map
+        }))
+        .sort((a, b) => b.value - a.value);
+        
+      setOrderStatusData(statusData);
+      
       toast({
         title: 'Data Refreshed',
         description: 'Sales data has been refreshed.'
@@ -420,21 +576,33 @@ const Sales = () => {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Weekly Sales</CardTitle>
-            <CardDescription>Revenue over the past 8 weeks</CardDescription>
+            <CardTitle>Daily Sales</CardTitle>
+            <CardDescription>Revenue over the past 14 days</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={loading ? [] : weeklySales}
+              <AreaChart
+                data={loading ? [] : dailySales}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="week" stroke="#888888" />
+                <defs>
+                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#9b87f5" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#9b87f5" stopOpacity={0.1}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="day" stroke="#888888" />
                 <YAxis stroke="#888888" />
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <Tooltip />
-                <Bar dataKey="amount" name="Sales Revenue" fill="#9b87f5" radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <Area 
+                  type="monotone" 
+                  dataKey="amount" 
+                  stroke="#9b87f5" 
+                  fillOpacity={1} 
+                  fill="url(#colorSales)" 
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -474,49 +642,189 @@ const Sales = () => {
         </Card>
       </div>
       
+      {/* Move Product Performance and Payment Methods chart above the table */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Product Performance</CardTitle>
+            <CardDescription>Sales for top products</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={loading ? [] : productPerformance}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              >
+                <XAxis dataKey="name" stroke="#888888" />
+                <YAxis stroke="#888888" />
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <Tooltip />
+                <Bar dataKey="sales" name="Sales" fill="#9b87f5" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales per Employee</CardTitle>
+            <CardDescription>Distribution of sales by staff member</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={loading ? [] : employeeSales}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={true}
+                  label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="amount"
+                  nameKey="name"
+                >
+                  {employeeSales.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `GHS${Number(value).toFixed(2)}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Payment Methods and Order Status charts */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Payment Methods</CardTitle>
+            <CardDescription>Distribution of payment types</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={loading ? [] : paymentMethods}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={40}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {paymentMethods.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  formatter={(value) => `${value} orders`}
+                  labelFormatter={(name) => `Payment: ${name}`}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Add Order Status chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Order Completion</CardTitle>
+            <CardDescription>Completed vs. Cancelled Orders</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={loading ? [] : orderStatusData}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                <XAxis type="number" />
+                <YAxis type="category" dataKey="name" width={100} />
+                <Tooltip formatter={(value) => `${value} orders`} />
+                <Legend />
+                <Bar dataKey="value" name="Orders">
+                  {orderStatusData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Move the sales table to the bottom and make its content scrollable */}
       <h2 className="text-xl font-semibold mb-2">
         Sales from the past 24 hours
       </h2>
       
-      <DataTable
-        data={loading ? [] : filteredSales}
-        columns={[
-          {
-            header: "Date",
-            accessorKey: "date",
-          },
-          {
-            header: "Product",
-            accessorKey: "productName",
-          },
-          {
-            header: "Quantity",
-            accessorKey: "quantity",
-          },
-          {
-            header: "Unit Price",
-            cell: (row: any) => <div>GHS {row.unitPrice.toFixed(2)}</div>,
-            accessorKey: "unitPrice"
-          },
-          {
-            header: "Total",
-            cell: (row: any) => <div className="font-medium">GHS {row.total.toFixed(2)}</div>,
-            accessorKey: "total"
-          },
-          {
-            header: "Payment",
-            cell: (row: any) => <div className="capitalize">{row.paymentMethod}</div>,
-            accessorKey: "paymentMethod"
-          },
-          {
-            header: "Staff",
-            accessorKey: "staffName",
-          },
-        ]}
-        title="Sales Transactions"
-        searchable={true}
-        onSearch={setSearchQuery}
-      />
+      <Card>
+        <CardContent>
+          <div style={{ 
+            maxHeight: '500px',
+            overflow: 'auto',
+            borderRadius: '0.5rem'
+          }}>
+            <table className="w-full">
+              <thead style={{ 
+                position: 'sticky', 
+                top: 0, 
+                backgroundColor: 'white',
+                zIndex: 10,
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+              }}>
+                <tr>
+                  <th className="p-3 text-left font-medium">Date</th>
+                  <th className="p-3 text-left font-medium">Product</th>
+                  <th className="p-3 text-left font-medium">Quantity</th>
+                  <th className="p-3 text-left font-medium">Unit Price</th>
+                  <th className="p-3 text-left font-medium">Total</th>
+                  <th className="p-3 text-left font-medium">Payment</th>
+                  <th className="p-3 text-left font-medium">Staff</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="text-center p-4">Loading sales data...</td>
+                  </tr>
+                ) : filteredSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center p-4">No sales data found</td>
+                  </tr>
+                ) : (
+                  filteredSales.map((sale, index) => (
+                    <tr key={sale.id || index} className={index % 2 === 0 ? 'bg-gray-50' : ''}>
+                      <td className="p-3 border-t">{sale.date}</td>
+                      <td className="p-3 border-t">{sale.productName}</td>
+                      <td className="p-3 border-t">{sale.quantity}</td>
+                      <td className="p-3 border-t">GHS {sale.unitPrice.toFixed(2)}</td>
+                      <td className="p-3 border-t font-medium">GHS {sale.total.toFixed(2)}</td>
+                      <td className="p-3 border-t capitalize">{sale.paymentMethod}</td>
+                      <td className="p-3 border-t">{sale.staffName}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Search input */}
+          <div className="mt-4">
+            <Input
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };

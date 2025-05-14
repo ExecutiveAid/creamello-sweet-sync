@@ -51,22 +51,23 @@ interface EmployeeSalesRow {
   amount: number;
 }
 
-// Add a new interface for payment methods data
-interface PaymentMethodRow {
+// Add interface for OrdersPerEmployeeRow
+interface OrdersPerEmployeeRow {
   name: string;
-  value: number;
+  orders: number;
 }
 
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [todaySales, setTodaySales] = useState(0);
   const [dailySales, setDailySales] = useState<DailySalesRow[]>([]);
-  const [productPerformance, setProductPerformance] = useState<ProductPerformanceRow[]>([]);
   const [recentSales, setRecentSales] = useState<RecentSaleRow[]>([]);
   const [employeeSales, setEmployeeSales] = useState<EmployeeSalesRow[]>([]);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [salesPast24Hours, setSalesPast24Hours] = useState(0);
+  const [productPerformance, setProductPerformance] = useState<ProductPerformanceRow[]>([]);
+  // Add state for orders per employee
+  const [ordersPerEmployee, setOrdersPerEmployee] = useState<OrdersPerEmployeeRow[]>([]);
 
   // Process orders data function
   const processOrdersData = (orders: any[]) => {
@@ -91,7 +92,7 @@ const Dashboard = () => {
       
       setSalesPast24Hours(recentOrdersCount);
 
-      // Daily Sales (last 14 days)
+      // Daily Sales (last 14 days) - We'll keep this calculation but not display the chart
       const salesByDay: Record<string, number> = {};
       (orders || []).forEach(order => {
         const day = order.created_at.slice(0, 10);
@@ -109,20 +110,6 @@ const Dashboard = () => {
         });
       }
       setDailySales(days);
-
-      // Product Performance (top-selling menu items)
-      const itemSales: Record<string, { name: string, sales: number }> = {};
-      (orders || []).forEach(order => {
-        (order.order_items || []).forEach(item => {
-          const name = item.flavor_name || item.flavor_id || 'N/A';
-          itemSales[name] = itemSales[name] || { name, sales: 0 };
-          itemSales[name].sales += item.scoops || 1;
-        });
-      });
-      const perf = Object.values(itemSales)
-        .sort((a, b) => b.sales - a.sales)
-        .slice(0, 4);
-      setProductPerformance(perf);
 
       // 10 Most Recent Individual Sale Items (from completed orders)
       let allSaleItems: any[] = [];
@@ -184,31 +171,42 @@ const Dashboard = () => {
             .sort((a, b) => b.amount - a.amount);
             
           setEmployeeSales(employeeSalesArray);
+          
+          // Calculate orders per employee (count of orders instead of cash value)
+          const ordersByEmployee: Record<string, number> = {};
+          (orders || []).forEach(order => {
+            if (order.staff_id && order.status === 'completed') {
+              const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
+              ordersByEmployee[employeeName] = (ordersByEmployee[employeeName] || 0) + 1;
+            }
+          });
+          
+          // Convert to array and sort by order count
+          const ordersPerEmployeeArray = Object.entries(ordersByEmployee)
+            .map(([name, orders]) => ({ name, orders }))
+            .sort((a, b) => b.orders - a.orders);
+            
+          setOrdersPerEmployee(ordersPerEmployeeArray);
         } catch (err: any) {
           console.error("Error fetching employee sales data:", err);
         }
       };
   
       fetchEmployeeSalesData();
-
-      // Calculate payment method distribution
-      const paymentMethodCounts: Record<string, number> = {};
+      
+      // Product Performance (top-selling menu items)
+      const itemSales: Record<string, { name: string, sales: number }> = {};
       (orders || []).forEach(order => {
-        if (order.status === 'completed') {
-          const method = order.payment_method || 'Unknown';
-          paymentMethodCounts[method] = (paymentMethodCounts[method] || 0) + 1;
-        }
+        (order.order_items || []).forEach((item: any) => {
+          const name = item.flavor_name || item.flavor_id || 'N/A';
+          itemSales[name] = itemSales[name] || { name, sales: 0 };
+          itemSales[name].sales += item.scoops || 1;
+        });
       });
-
-      // Convert to array for the chart
-      const paymentMethodsArray = Object.entries(paymentMethodCounts)
-        .map(([name, value]) => ({ 
-          name: name.charAt(0).toUpperCase() + name.slice(1), // Capitalize first letter
-          value 
-        }))
-        .sort((a, b) => b.value - a.value);
-
-      setPaymentMethods(paymentMethodsArray);
+      const perf = Object.values(itemSales)
+        .sort((a, b) => b.sales - a.sales)
+        .slice(0, 4);
+      setProductPerformance(perf);
       
     } catch (err: any) {
       setError(err.message || 'Error processing data');
@@ -311,25 +309,25 @@ const Dashboard = () => {
           trendValue=""
         />
         <DashboardCard
-          title="Weekly Sales"
-          value={loading ? 'Loading...' : `GHS ${dailySales.slice(-7).reduce((acc, d) => acc + d.amount, 0).toFixed(2)}`}
-          description="Revenue this week"
+          title="Orders Today"
+          value={loading ? 'Loading...' : salesPast24Hours.toString()}
+          description="Orders made in the past 24 hours"
+          icon={null}
+          trend={null}
+          trendValue=""
+        />
+        <DashboardCard
+          title="Active Staff"
+          value={loading ? 'Loading...' : employeeSales.length.toString()}
+          description="Staff with recorded sales"
           icon={null}
           trend={null}
           trendValue=""
         />
         <DashboardCard
           title="Top Product"
-          value={loading || productPerformance.length === 0 ? 'Loading...' : productPerformance[0].name}
-          description="Best selling menu item"
-          icon={null}
-          trend={null}
-          trendValue=""
-        />
-        <DashboardCard
-          title="Recent Orders"
-          value={loading ? 'Loading...' : salesPast24Hours}
-          description="Orders made in the past 24 hours"
+          value={loading || !productPerformance.length ? 'Loading...' : productPerformance[0]?.name || 'N/A'}
+          description="Most popular item"
           icon={null}
           trend={null}
           trendValue=""
@@ -338,36 +336,33 @@ const Dashboard = () => {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Daily Sales</CardTitle>
-            <CardDescription>Sales revenue over the past 14 days</CardDescription>
+            <CardTitle>Orders per Employee</CardTitle>
+            <CardDescription>Distribution of orders processed by staff member</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={loading ? [] : dailySales}
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#9b87f5" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#9b87f5" stopOpacity={0.1}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="day" stroke="#888888" />
-                <YAxis stroke="#888888" />
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <Tooltip />
-                <Area 
-                  type="monotone" 
-                  dataKey="amount" 
-                  stroke="#9b87f5" 
-                  fillOpacity={1} 
-                  fill="url(#colorSales)" 
-                />
-              </AreaChart>
+              <PieChart>
+                <Pie
+                  data={loading ? [] : ordersPerEmployee}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={true}
+                  label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="orders"
+                  nameKey="name"
+                >
+                  {ordersPerEmployee.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={EMPLOYEE_COLORS[index % EMPLOYEE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => `${value} orders`} />
+              </PieChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader>
             <CardTitle>Product Performance</CardTitle>
@@ -386,108 +381,6 @@ const Dashboard = () => {
                 <Bar dataKey="sales" name="Sales" fill="#9b87f5" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="grid gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Sales per Employee</CardTitle>
-              <CardDescription>Distribution of sales by staff member</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={loading ? [] : employeeSales}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={true}
-                    label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="amount"
-                    nameKey="name"
-                  >
-                    {employeeSales.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={EMPLOYEE_COLORS[index % EMPLOYEE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => `GHS${Number(value).toFixed(2)}`} />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader>
-              <CardTitle>Payment Methods</CardTitle>
-              <CardDescription>Distribution of payment types</CardDescription>
-            </CardHeader>
-            <CardContent className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={loading ? [] : paymentMethods}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {paymentMethods.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={EMPLOYEE_COLORS[index % EMPLOYEE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    formatter={(value) => `${value} orders`}
-                    labelFormatter={(name) => `Payment: ${name}`}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-        
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Sales</CardTitle>
-            <CardDescription>Recently completed orders</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable 
-              data={loading ? [] : recentSales}
-              columns={[
-                {
-                  header: "Product",
-                  accessorKey: "productName",
-                },
-                {
-                  header: "Date",
-                  accessorKey: "date",
-                },
-                {
-                  header: "Quantity",
-                  accessorKey: "quantity",
-                },
-                {
-                  header: "Total",
-                  cell: (row) => <div>GHS {row.total.toFixed(2)}</div>,
-                  accessorKey: "total",
-                },
-                {
-                  header: "Payment",
-                  cell: (row) => <div className="capitalize">{row.paymentMethod}</div>,
-                  accessorKey: "paymentMethod"
-                }
-              ]}
-            />
-            {loading && <div className="text-center text-muted-foreground py-4">Loading recent sales...</div>}
-            {!loading && recentSales.length === 0 && <div className="text-center text-muted-foreground py-4">No completed orders found</div>}
           </CardContent>
         </Card>
       </div>

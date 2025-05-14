@@ -1,0 +1,51 @@
+.sales-table-container {
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.sales-data-table {
+  width: 100%;
+}
+
+.sales-data-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sales-data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.sales-data-table tbody {
+  display: block;
+  max-height: 450px;
+  overflow-y: auto;
+}
+
+.sales-data-table thead tr,
+.sales-data-table tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.sales-data-table th,
+.sales-data-table td {
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.sales-data-table th {
+  font-weight: 600;
+}
+
+/* Ensure search input and pagination stay fixed */
+.sales-table-container .flex {
+  position: relative;
+  z-index: 20;
+  background-color: white;
+} 
