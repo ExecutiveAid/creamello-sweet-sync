@@ -27,18 +27,18 @@ const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false 
       to={to}
       className={({ isActive }) =>
         cn(
-          "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-sidebar-accent group",
+          "flex items-center gap-3 px-3 py-4 rounded-lg transition-colors hover:bg-sidebar-accent group",
           isActive
-            ? "bg-sidebar-accent text-primary font-medium"
-            : "text-sidebar-foreground hover:text-sidebar-foreground",
-          highlighted && !isActive && "text-creamello-purple font-medium",
+            ? "bg-sidebar-accent text-primary font-bold"
+            : "text-sidebar-foreground hover:text-sidebar-foreground font-bold",
+          highlighted && !isActive && "text-creamello-purple font-bold",
           state === 'collapsed' && 'justify-center px-0'
         )
       }
       end={exact}
     >
-      <Icon className={cn("h-5 w-5", highlighted && "text-creamello-purple")} />
-      {state !== 'collapsed' && <span>{children}</span>}
+      <Icon className={cn("h-7 w-7", highlighted && "text-creamello-purple")} />
+      {state !== 'collapsed' && <span className="text-lg">{children}</span>}
     </NavLink>
   );
 };
@@ -82,7 +82,7 @@ export const AppSidebar = () => {
           )}
           
           {/* Orders - visible to everyone */}
-          <NavItem to="/orders" icon={IceCreamCone} highlighted={true}>Orders</NavItem>
+          <NavItem to="/orders" icon={IceCreamCone}>Orders</NavItem>
           
           {/* Admin only section */}
           {isAdmin && <NavItem to="/settings" icon={Settings}>Settings</NavItem>}

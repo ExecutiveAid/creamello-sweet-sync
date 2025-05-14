@@ -8,8 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { format } from 'date-fns';
-import { FilePieChart, FileSpreadsheet, TrendingUp, CalendarRange, FileText, Download, BarChart3, Loader2, FileDown } from 'lucide-react';
+import { format, startOfWeek, endOfWeek } from 'date-fns';
+import { FilePieChart, FileSpreadsheet, TrendingUp, CalendarRange, FileText, Download, BarChart3, Loader2, FileDown, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -26,6 +26,7 @@ const Reports = () => {
   const [reportFormat, setReportFormat] = useState("csv");
   const [reportType, setReportType] = useState("daily");
   const [loading, setLoading] = useState(false);
+  const [timePeriod, setTimePeriod] = useState("day");
   
   // Helper function to format dates for display
   const formatDate = (date?: Date) => {
@@ -120,6 +121,74 @@ const Reports = () => {
         Object.values(dailySummary).forEach(summary => {
           reportData.push(summary);
         });
+      } else if (reportType === 'employee') {
+        // Sales by Employee report
+        const employeeSummary: Record<string, {
+          employeeName: string, 
+          orderCount: number,
+          totalSales: number,
+          averageOrderValue: number
+        }> = {};
+        
+        (orders || []).forEach(order => {
+          const staffId = order.staff_id;
+          const staffName = staffMap[staffId] || 'Unknown';
+          
+          if (!employeeSummary[staffId]) {
+            employeeSummary[staffId] = {
+              employeeName: staffName,
+              orderCount: 0,
+              totalSales: 0,
+              averageOrderValue: 0
+            };
+          }
+          
+          employeeSummary[staffId].orderCount += 1;
+          employeeSummary[staffId].totalSales += order.total;
+        });
+        
+        // Calculate average order value
+        Object.values(employeeSummary).forEach(emp => {
+          emp.averageOrderValue = emp.orderCount > 0 ? emp.totalSales / emp.orderCount : 0;
+          reportData.push(emp);
+        });
+      } else if (reportType === 'payment') {
+        // Sales by Payment Method report
+        const paymentSummary: Record<string, {
+          paymentMethod: string,
+          orderCount: number,
+          totalSales: number,
+          percentage: number
+        }> = {};
+        
+        let totalOrderCount = 0;
+        let grandTotal = 0;
+        
+        // First calculate totals
+        (orders || []).forEach(order => {
+          const method = order.payment_method || 'Unknown';
+          
+          if (!paymentSummary[method]) {
+            paymentSummary[method] = {
+              paymentMethod: method,
+              orderCount: 0,
+              totalSales: 0,
+              percentage: 0
+            };
+          }
+          
+          paymentSummary[method].orderCount += 1;
+          paymentSummary[method].totalSales += order.total;
+          
+          totalOrderCount += 1;
+          grandTotal += order.total;
+        });
+        
+        // Calculate percentages
+        Object.values(paymentSummary).forEach(payment => {
+          payment.percentage = grandTotal > 0 ? (payment.totalSales / grandTotal) * 100 : 0;
+          reportData.push(payment);
+        });
       }
 
       // Generate the appropriate filename
@@ -152,11 +221,25 @@ const Reports = () => {
           { key: 'total', label: 'Total' },
           { key: 'staff', label: 'Staff Member' },
         ];
-      } else { // summary
+      } else if (reportType === 'summary') {
         columns = [
           { key: 'date', label: 'Date' },
           { key: 'totalSales', label: 'Total Sales' },
           { key: 'orderCount', label: 'Order Count' },
+        ];
+      } else if (reportType === 'employee') {
+        columns = [
+          { key: 'employeeName', label: 'Employee Name' },
+          { key: 'orderCount', label: 'Orders Completed' },
+          { key: 'totalSales', label: 'Total Sales (GHS)' },
+          { key: 'averageOrderValue', label: 'Average Order Value (GHS)' },
+        ];
+      } else if (reportType === 'payment') {
+        columns = [
+          { key: 'paymentMethod', label: 'Payment Method' },
+          { key: 'orderCount', label: 'Number of Orders' },
+          { key: 'totalSales', label: 'Total Sales (GHS)' },
+          { key: 'percentage', label: 'Percentage of Sales (%)' },
         ];
       }
       
@@ -364,6 +447,149 @@ const Reports = () => {
     }
   };
 
+  // Generate staff hours report
+  const generateStaffHoursReport = async () => {
+    setLoading(true);
+    try {
+      // Get staff data for mapping IDs to names
+      const { data: staffMembers, error: staffError } = await supabase
+        .from('staff')
+        .select('id, name, role');
+        
+      if (staffError) throw staffError;
+
+      // Create staff lookup map
+      const staffMap = (staffMembers || []).reduce((acc: Record<string, any>, member: any) => {
+        acc[member.id] = { name: member.name, role: member.role };
+        return acc;
+      }, {});
+
+      // Build query to get staff attendance records instead of staff_hours
+      let query = supabase
+        .from('staff_attendance')
+        .select('*');
+
+      // Add date filters if set
+      if (startDate) {
+        const formattedStartDate = formatDate(startDate);
+        query = query.gte('login_time', `${formattedStartDate}T00:00:00`);
+      }
+      
+      if (endDate) {
+        const formattedEndDate = formatDate(endDate);
+        query = query.lte('login_time', `${formattedEndDate}T23:59:59`);
+      }
+
+      // Execute query
+      const { data: attendanceRecords, error } = await query.order('login_time', { ascending: false });
+      
+      if (error) throw error;
+
+      // Process the data based on selected time period
+      const reportData = [];
+      const staffHoursSummary: Record<string, Record<string, any>> = {};
+      
+      // Initialize data structure
+      (attendanceRecords || []).forEach(record => {
+        const staffId = record.staff_id;
+        const staffName = staffMap[staffId]?.name || 'Unknown';
+        const staffRole = staffMap[staffId]?.role || 'Unknown';
+        
+        // Calculate hours worked (only if logout_time exists)
+        let hoursWorked = 0;
+        if (record.login_time && record.logout_time) {
+          const loginTime = new Date(record.login_time);
+          const logoutTime = new Date(record.logout_time);
+          hoursWorked = (logoutTime.getTime() - loginTime.getTime()) / (1000 * 60 * 60);
+        }
+        
+        // Skip records with no hours (no logout)
+        if (hoursWorked <= 0) return;
+        
+        const loginDate = new Date(record.login_time);
+        
+        let periodKey;
+        if (timePeriod === 'day') {
+          // Daily report - group by staff and date
+          periodKey = format(loginDate, 'yyyy-MM-dd');
+        } else if (timePeriod === 'week') {
+          // Weekly report - group by staff and week
+          const weekStart = format(startOfWeek(loginDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+          const weekEnd = format(endOfWeek(loginDate, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+          periodKey = `${weekStart} to ${weekEnd}`;
+        } else if (timePeriod === 'month') {
+          // Monthly report - group by staff and month
+          periodKey = format(loginDate, 'yyyy-MM');
+        }
+        
+        const key = `${staffId}_${periodKey}`;
+        
+        if (!staffHoursSummary[key]) {
+          staffHoursSummary[key] = {
+            staffId,
+            staffName,
+            staffRole,
+            period: periodKey,
+            totalHours: 0,
+            shifts: 0
+          };
+        }
+        
+        staffHoursSummary[key].totalHours += hoursWorked;
+        staffHoursSummary[key].shifts += 1;
+      });
+      
+      // Convert to array for report
+      Object.values(staffHoursSummary).forEach(summary => {
+        reportData.push({
+          ...summary,
+          totalHours: Number(summary.totalHours.toFixed(2)) // Round to 2 decimal places
+        });
+      });
+      
+      // Generate filename
+      const dateRange = startDate && endDate 
+        ? `_${formatDate(startDate)}_to_${formatDate(endDate)}` 
+        : '';
+      
+      const filename = `staff_hours_${timePeriod}${dateRange}.csv`;
+      
+      // Define columns based on time period
+      let periodLabel;
+      if (timePeriod === 'day') {
+        periodLabel = 'Date';
+      } else if (timePeriod === 'week') {
+        periodLabel = 'Week';
+      } else if (timePeriod === 'month') {
+        periodLabel = 'Month';
+      }
+      
+      const columns = [
+        { key: 'staffName', label: 'Employee Name' },
+        { key: 'staffRole', label: 'Role' },
+        { key: 'period', label: periodLabel },
+        { key: 'totalHours', label: 'Total Hours' },
+        { key: 'shifts', label: 'Shifts Worked' },
+      ];
+      
+      // Export to CSV
+      exportToCSV(reportData, filename, columns);
+      
+      toast({
+        title: 'Staff Hours Report Generated',
+        description: `Your ${timePeriod}ly staff hours report has been downloaded.`
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error Generating Report',
+        description: err.message || 'An error occurred generating the report.',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handler for different report types
   const handleGenerateReport = () => {
     switch(activeTab) {
@@ -378,6 +604,9 @@ const Reports = () => {
         break;
       case 'orders':
         generateOrdersReport();
+        break;
+      case 'staffHours':
+        generateStaffHoursReport();
         break;
       default:
         generateSalesReport();
@@ -401,11 +630,12 @@ const Reports = () => {
       </div>
       
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full md:w-[600px] grid-cols-4">
+        <TabsList className="grid w-full md:w-[600px] grid-cols-5">
           <TabsTrigger value="sales">Sales</TabsTrigger>
           <TabsTrigger value="inventory">Inventory</TabsTrigger>
           <TabsTrigger value="production">Production</TabsTrigger>
           <TabsTrigger value="orders">Orders</TabsTrigger>
+          <TabsTrigger value="staffHours">Staff Hours</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sales" className="space-y-4 pt-4">
@@ -429,6 +659,8 @@ const Reports = () => {
                       <SelectItem value="detailed">Detailed (Item by Item)</SelectItem>
                       <SelectItem value="daily">Daily Sales</SelectItem>
                       <SelectItem value="summary">Summary by Date</SelectItem>
+                      <SelectItem value="employee">Sales by Employee</SelectItem>
+                      <SelectItem value="payment">Sales by Payment Method</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -621,6 +853,96 @@ const Reports = () => {
               
               <div className="flex flex-col space-y-2">
                 <Label>Date Range (Optional)</Label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="startDate" className="min-w-20">From:</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-[200px] justify-start text-left font-normal">
+                          <CalendarRange className="mr-2 h-4 w-4" />
+                          {startDate ? format(startDate, 'PPP') : <span>Pick a date</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          selected={startDate}
+                          onSelect={setStartDate}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="endDate" className="min-w-20">To:</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-[200px] justify-start text-left font-normal">
+                          <CalendarRange className="mr-2 h-4 w-4" />
+                          {endDate ? format(endDate, 'PPP') : <span>Pick a date</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          selected={endDate}
+                          onSelect={setEndDate}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  
+                  <Button variant="outline" onClick={clearDateRange}>
+                    Clear Dates
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="staffHours" className="space-y-4 pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5 text-creamello-purple" />
+                Staff Hours Report
+              </CardTitle>
+              <CardDescription>Generate reports on employee work hours by day, week, or month</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="timePeriod">Time Period</Label>
+                  <Select value={timePeriod} onValueChange={setTimePeriod}>
+                    <SelectTrigger id="timePeriod">
+                      <SelectValue placeholder="Select time period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="day">Daily Hours</SelectItem>
+                      <SelectItem value="week">Weekly Hours</SelectItem>
+                      <SelectItem value="month">Monthly Hours</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="staffHoursReportFormat">Report Format</Label>
+                  <Select value={reportFormat} onValueChange={setReportFormat}>
+                    <SelectTrigger id="staffHoursReportFormat">
+                      <SelectValue placeholder="Select format" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="csv">CSV</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="flex flex-col space-y-2">
+                <Label>Date Range</Label>
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="flex items-center gap-2">
                     <Label htmlFor="startDate" className="min-w-20">From:</Label>

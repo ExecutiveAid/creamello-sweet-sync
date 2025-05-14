@@ -169,12 +169,6 @@ const Inventory = () => {
         >Clear</Button>
       </div>
       
-      {isAdmin && (
-        <div className="text-sm text-muted-foreground mb-4">
-          For inventory reports and exports, visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
-        </div>
-      )}
-      
       <DataTable
         data={loading ? [] : filteredProducts}
         columns={[

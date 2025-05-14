@@ -700,33 +700,12 @@ const Orders = () => {
           
           {isAdminOrManager ? (
             <div className="flex gap-2 items-center mb-2">
-              <label>From:</label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
-              <label>To:</label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setStartDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
-                  setEndDate(format(new Date(), 'yyyy-MM-dd'));
-                }}
-                disabled={startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
-                          endDate === format(new Date(), 'yyyy-MM-dd')}
-              >Reset to 24h</Button>
+              {/* Date range picker removed */}
             </div>
           ) : null}
           
-          {isAdmin && (
-            <div className="text-sm text-muted-foreground mb-4">
-              Need detailed order reports? Visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
-            </div>
-          )}
-          
           <h2 className="text-xl font-semibold mb-2">
-            {startDate === format(subDays(new Date(), 1), 'yyyy-MM-dd') && 
-             endDate === format(new Date(), 'yyyy-MM-dd') 
-              ? 'Orders from the past 24 hours'
-              : `Orders from ${startDate} to ${endDate}`}
+            Orders
           </h2>
           
           <DataTable 

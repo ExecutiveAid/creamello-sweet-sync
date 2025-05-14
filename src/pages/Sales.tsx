@@ -11,8 +11,16 @@ import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 
-// COLORS for the pie chart
-const EMPLOYEE_COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', '#f58787', '#87f5e2', '#c387f5'];
+// COLORS for the graphs
+const COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', '#f58787', '#87f5e2', '#c387f5'];
+
+// Define the Peak Hours type
+interface HourlyData {
+  hour: string;
+  orderCount: number;
+  revenue: number;
+  displayHour: string; // More readable hour format
+}
 
 const Sales = () => {
   const { staff } = useAuth();
@@ -23,7 +31,8 @@ const Sales = () => {
   const [filteredSales, setFilteredSales] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [weeklySales, setWeeklySales] = useState<any[]>([]);
-  const [employeeSales, setEmployeeSales] = useState<any[]>([]);
+  const [hourlyData, setHourlyData] = useState<HourlyData[]>([]);
+  const [totalStockValue, setTotalStockValue] = useState(0);
   
   // Set default date range to past 24 hours (no longer exposed to user)
   const startDate = format(subDays(new Date(), 1), 'yyyy-MM-dd');
@@ -40,7 +49,7 @@ const Sales = () => {
         // Fetch all completed orders and their items
         const { data: orders, error: ordersError } = await supabase
           .from('orders')
-          .select('id, created_at, payment_method, total, staff_id, order_items(id, flavor_id, flavor_name, scoops, price)')
+          .select('id, created_at, payment_method, total, staff_id, status, order_items(id, flavor_id, flavor_name, scoops, price)')
           .eq('status', 'completed')
           .order('created_at', { ascending: false });
         if (ordersError) throw ordersError;
@@ -103,19 +112,65 @@ const Sales = () => {
         }
         setWeeklySales(weeks);
         
-        // Calculate sales per employee
-        const salesByEmployee: Record<string, number> = {};
+        // Calculate hourly data for peak hours graph
+        const hourlyStats: Record<string, { orderCount: number, revenue: number }> = {};
+        
+        // Initialize all 24 hours of the day with zero values
+        for (let i = 0; i < 24; i++) {
+          const hourLabel = i.toString().padStart(2, '0') + ':00';
+          hourlyStats[hourLabel] = { orderCount: 0, revenue: 0 };
+        }
+        
+        // Populate with real data
         (orders || []).forEach(order => {
-          const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
-          salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
+          if (order.status === 'completed') {
+            try {
+              // Extract hour from the timestamp
+              // Ensure we're parsing the timestamp correctly
+              let orderDate;
+              if (order.created_at.includes('T')) {
+                // ISO string format
+                orderDate = new Date(order.created_at);
+              } else {
+                // Add time if it's just a date
+                orderDate = new Date(order.created_at + (order.created_at.includes(':') ? '' : 'T00:00:00'));
+              }
+              
+              const hour = orderDate.getHours();
+              const hourLabel = hour.toString().padStart(2, '0') + ':00';
+              
+              // Increment the order count and add to revenue for this hour
+              hourlyStats[hourLabel].orderCount += 1;
+              hourlyStats[hourLabel].revenue += (order.total || 0);
+            } catch (err) {
+              console.error("Error processing order timestamp:", err, order);
+            }
+          }
         });
         
-        // Convert to array and sort by sales amount
-        const employeeSalesArray = Object.entries(salesByEmployee)
-          .map(([name, amount]) => ({ name, amount }))
-          .sort((a, b) => b.amount - a.amount);
-          
-        setEmployeeSales(employeeSalesArray);
+        // Convert to array for the chart
+        const hourlyDataArray = Object.entries(hourlyStats)
+          .map(([hour, data]) => {
+            // Create more readable display hour format (12-hour format with AM/PM)
+            const hourNum = parseInt(hour.split(':')[0]);
+            const displayHour = hourNum === 0 ? '12 AM' : 
+                                hourNum < 12 ? `${hourNum} AM` : 
+                                hourNum === 12 ? '12 PM' : 
+                                `${hourNum - 12} PM`;
+            
+            return {
+              hour,
+              orderCount: data.orderCount,
+              revenue: data.revenue,
+              displayHour
+            };
+          })
+          .sort((a, b) => {
+            // Sort by hour (00:00 to 23:00)
+            return parseInt(a.hour.split(':')[0]) - parseInt(b.hour.split(':')[0]);
+          });
+        
+        setHourlyData(hourlyDataArray);
       } catch (err: any) {
         setError(err.message || 'Failed to load sales data');
       } finally {
@@ -123,6 +178,7 @@ const Sales = () => {
       }
     };
     fetchSalesData();
+    fetchInventoryData();
   }, []);
 
   // Update filtering to use fixed 24 hour window
@@ -149,11 +205,11 @@ const Sales = () => {
       // Re-fetch data
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
-        .select('id, created_at, payment_method, total, staff_id, order_items(id, flavor_id, flavor_name, scoops, price)')
+        .select('id, created_at, payment_method, total, staff_id, status, order_items(id, flavor_id, flavor_name, scoops, price)')
         .eq('status', 'completed')
         .order('created_at', { ascending: false });
       if (ordersError) throw ordersError;
-      
+
       // Re-fetch staff names
       const { data: staffMembers, error: staffError } = await supabase
         .from('staff')
@@ -211,19 +267,67 @@ const Sales = () => {
       }
       setWeeklySales(weeks);
       
-      // Calculate sales per employee
-      const salesByEmployee: Record<string, number> = {};
+      // Calculate hourly data
+      const hourlyStats: Record<string, { orderCount: number, revenue: number }> = {};
+      
+      // Initialize all 24 hours
+      for (let i = 0; i < 24; i++) {
+        const hourLabel = i.toString().padStart(2, '0') + ':00';
+        hourlyStats[hourLabel] = { orderCount: 0, revenue: 0 };
+      }
+      
+      // Populate with real data
       (orders || []).forEach(order => {
-        const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
-        salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
+        if (order.status === 'completed') {
+          try {
+            // Extract hour from the timestamp
+            // Ensure we're parsing the timestamp correctly
+            let orderDate;
+            if (order.created_at.includes('T')) {
+              // ISO string format
+              orderDate = new Date(order.created_at);
+            } else {
+              // Add time if it's just a date
+              orderDate = new Date(order.created_at + (order.created_at.includes(':') ? '' : 'T00:00:00'));
+            }
+            
+            const hour = orderDate.getHours();
+            const hourLabel = hour.toString().padStart(2, '0') + ':00';
+            
+            // Increment the order count and add to revenue for this hour
+            hourlyStats[hourLabel].orderCount += 1;
+            hourlyStats[hourLabel].revenue += (order.total || 0);
+          } catch (err) {
+            console.error("Error processing order timestamp:", err, order);
+          }
+        }
       });
       
-      // Convert to array and sort by sales amount
-      const employeeSalesArray = Object.entries(salesByEmployee)
-        .map(([name, amount]) => ({ name, amount }))
-        .sort((a, b) => b.amount - a.amount);
-        
-      setEmployeeSales(employeeSalesArray);
+      // Convert to array for the chart
+      const hourlyDataArray = Object.entries(hourlyStats)
+        .map(([hour, data]) => {
+          // Create more readable display hour format (12-hour format with AM/PM)
+          const hourNum = parseInt(hour.split(':')[0]);
+          const displayHour = hourNum === 0 ? '12 AM' : 
+                              hourNum < 12 ? `${hourNum} AM` : 
+                              hourNum === 12 ? '12 PM' : 
+                              `${hourNum - 12} PM`;
+          
+          return {
+            hour,
+            orderCount: data.orderCount,
+            revenue: data.revenue,
+            displayHour
+          };
+        })
+        .sort((a, b) => {
+          return parseInt(a.hour.split(':')[0]) - parseInt(b.hour.split(':')[0]);
+        });
+      
+      setHourlyData(hourlyDataArray);
+      
+      // Also refresh the inventory data
+      await fetchInventoryData();
       
       toast({
         title: 'Data Refreshed',
@@ -253,6 +357,29 @@ const Sales = () => {
     ? sales.reduce((acc, sale) => acc + sale.total, 0) / sales.length
     : 0;
 
+  // Add a function to fetch inventory data and calculate total stock value
+  const fetchInventoryData = async () => {
+    try {
+      const { data: inventoryItems, error } = await supabase
+        .from('inventory')
+        .select('*');
+      
+      if (error) {
+        console.error("Error fetching inventory:", error);
+        return;
+      }
+      
+      // Calculate total stock value
+      const stockValue = (inventoryItems || []).reduce((total, item) => {
+        return total + (item.available_quantity * item.price_per_unit);
+      }, 0);
+      
+      setTotalStockValue(stockValue);
+    } catch (err) {
+      console.error("Error in fetchInventoryData:", err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -264,7 +391,7 @@ const Sales = () => {
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Today's Sales</CardTitle>
@@ -279,8 +406,14 @@ const Sales = () => {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Avg. Order Value</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Average Sales Value</CardTitle>
             <CardDescription className="text-2xl font-bold">GHS {avgOrderValue.toFixed(2)}</CardDescription>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Stock Value</CardTitle>
+            <CardDescription className="text-2xl font-bold">GHS {totalStockValue.toFixed(2)}</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -308,39 +441,38 @@ const Sales = () => {
         
         <Card>
           <CardHeader>
-            <CardTitle>Sales per Employee</CardTitle>
-            <CardDescription>Distribution of sales by staff member</CardDescription>
+            <CardTitle>Peak Hours & Slow Hours</CardTitle>
+            <CardDescription>Order volume by hour of day</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={loading ? [] : employeeSales}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={true}
-                  label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="amount"
-                  nameKey="name"
-                >
-                  {employeeSales.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={EMPLOYEE_COLORS[index % EMPLOYEE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => `GHS${Number(value).toFixed(2)}`} />
-              </PieChart>
+              <BarChart
+                data={loading ? [] : hourlyData}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis 
+                  dataKey="displayHour" 
+                  stroke="#888888"
+                  tick={{ fontSize: 11 }}
+                  interval={1}
+                />
+                <YAxis stroke="#888888" />
+                <Tooltip
+                  formatter={(value) => [`${value} orders`, 'Order Count']}
+                  labelFormatter={(displayHour) => `Time: ${displayHour}`}
+                />
+                <Bar 
+                  dataKey="orderCount" 
+                  name="Order Count" 
+                  fill="#9b87f5" 
+                  radius={[4, 4, 0, 0]} 
+                />
+              </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
-      
-      {isAdmin && (
-        <div className="text-sm text-muted-foreground mb-4">
-          Need detailed reports? Visit the <a href="/reports" className="text-creamello-purple hover:underline">Reports</a> page.
-        </div>
-      )}
       
       <h2 className="text-xl font-semibold mb-2">
         Sales from the past 24 hours
