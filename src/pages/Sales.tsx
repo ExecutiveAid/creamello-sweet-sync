@@ -10,6 +10,7 @@ import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 // COLORS for the graphs
 const COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', '#f58787', '#87f5e2', '#c387f5'];
@@ -57,6 +58,15 @@ const Sales = () => {
   const isAdmin = staff?.role === 'admin';
   const isManager = staff?.role === 'manager';
   const isAdminOrManager = isAdmin || isManager;
+  const navigate = useNavigate();
+  
+  // Redirect non-admin/non-manager staff to dashboard
+  useEffect(() => {
+    if (staff && !isAdminOrManager) {
+      navigate('/dashboard');
+    }
+  }, [staff, isAdminOrManager, navigate]);
+  
   const [sales, setSales] = useState<any[]>([]);
   const [filteredSales, setFilteredSales] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -539,7 +549,9 @@ const Sales = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold tracking-tight">Sales</h1>
+        <h1 className="text-3xl font-bold tracking-tight">
+          {isAdminOrManager ? 'Admin Dashboard' : 'Sales'}
+        </h1>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className="h-4 w-4" />

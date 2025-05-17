@@ -44,6 +44,22 @@ function AdminOrManagerRoute() {
   return <Outlet />;
 }
 
+// Add a RoleBasedRedirect component to redirect users based on their role
+function RoleBasedRedirect() {
+  const { staff, loading } = useAuth();
+  
+  if (loading) return <div className="flex min-h-screen items-center justify-center">Loading...</div>;
+  
+  if (!staff) return <Navigate to="/auth" replace />;
+  
+  // Redirect admin and managers to Sales, regular staff to Dashboard
+  if (staff.role === 'admin' || staff.role === 'manager') {
+    return <Navigate to="/sales" replace />;
+  } else {
+    return <Navigate to="/dashboard" replace />;
+  }
+}
+
 const App = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
@@ -90,9 +106,11 @@ const App = () => {
                 <BrowserRouter>
                   <Routes>
                     <Route path="/auth" element={<Auth />} />
+                    <Route path="/" element={<RoleBasedRedirect />} />
+                    
                     <Route element={<ProtectedRoute />}>
                       <Route element={<Layout />}>
-                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/orders" element={<Orders />} />
                       </Route>
                     </Route>

@@ -65,6 +65,8 @@ const Production = () => {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   // Add state for categories
   const [categories, setCategories] = useState<string[]>([]);
+  // Add state for product names
+  const [productNames, setProductNames] = useState<{name: string; category: string}[]>([]);
   
   // Replenishment state
   const [replenishDialogOpen, setReplenishDialogOpen] = useState(false);
@@ -182,9 +184,27 @@ const Production = () => {
     }
   };
 
+  // Add a function to fetch product names
+  const fetchProductNames = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('name, category')
+        .order('name');
+      
+      if (error) throw error;
+      
+      setProductNames(data || []);
+    } catch (err: any) {
+      console.error('Error fetching product names:', err.message);
+      // Don't show error to user, just log it
+    }
+  };
+
   useEffect(() => {
     fetchBatches();
     fetchCategories();
+    fetchProductNames();
 
     // Set up real-time subscription to production_batches table
     const subscription = supabase
@@ -535,37 +555,44 @@ const Production = () => {
           },
           {
             header: "Actions",
-            cell: (row: ProductionBatch) => (
-              <Select
-                value={row.status}
-                onValueChange={async (value) => {
-                  const { error } = await supabase
-                    .from('production_batches')
-                    .update({ status: value })
-                    .eq('id', row.id);
-                  if (!error) {
-                    setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
-                    setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
-                    toast({ title: 'Status Updated', description: `Batch status changed to ${value}` });
-                  } else {
-                    toast({ title: 'Error', description: error.message, variant: 'destructive' });
-                  }
-                }}
-              >
-                <SelectTrigger className="w-[140px] h-8">
-                  <SelectValue placeholder="Update Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="planned">Planned</SelectItem>
-                  <SelectItem value="in-progress">In Progress</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            ),
-          },
-          {
-            header: "Notes",
-            accessorKey: "notes",
+            cell: (row: ProductionBatch) => {
+              // If the batch is already completed, don't allow status changes
+              if (row.status === 'completed') {
+                return (
+                  <div className="text-sm text-muted-foreground">
+                    Completed (no changes allowed)
+                  </div>
+                );
+              }
+              
+              // For planned or in-progress batches, allow status changes
+              return (
+                <Select
+                  value={row.status}
+                  onValueChange={async (value) => {
+                    const { error } = await supabase
+                      .from('production_batches')
+                      .update({ status: value })
+                      .eq('id', row.id);
+                    if (!error) {
+                      setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
+                      setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
+                      toast({ title: 'Status Updated', description: `Batch status changed to ${value}` });
+                    } else {
+                      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[140px] h-8">
+                    <SelectValue placeholder="Update Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planned">Planned</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              );
+            },
           },
         ]}
         title="Production Batches"
@@ -585,12 +612,33 @@ const Production = () => {
               <Label htmlFor="product_name" className="text-right">
                 Product Name *
               </Label>
-              <Input
-                id="product_name"
+              <Select
                 value={newBatch.product_name}
-                onChange={(e) => setNewBatch({ ...newBatch, product_name: e.target.value })}
-                className="col-span-3"
-              />
+                onValueChange={(name) => {
+                  // Find the selected product to get its category
+                  const selectedProduct = productNames.find(p => p.name === name);
+                  if (selectedProduct) {
+                    const category = selectedProduct.category;
+                    setNewBatch({
+                      ...newBatch,
+                      product_name: name,
+                      category: category,
+                      unit: getSuggestedUnit(category)
+                    });
+                  } else {
+                    setNewBatch({ ...newBatch, product_name: name });
+                  }
+                }}
+              >
+                <SelectTrigger id="product_name" className="col-span-3">
+                  <SelectValue placeholder="Select a product" />
+                </SelectTrigger>
+                <SelectContent>
+                  {productNames.map((product) => (
+                    <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="category" className="text-right">
@@ -644,13 +692,21 @@ const Production = () => {
               <Label htmlFor="unit" className="text-right">
                 Unit *
               </Label>
-              <Input
-                id="unit"
+              <Select
                 value={newBatch.unit}
-                onChange={(e) => setNewBatch({ ...newBatch, unit: e.target.value })}
-                className="col-span-3"
-                placeholder={getSuggestedUnit(newBatch.category)}
-              />
+                onValueChange={(unit) => setNewBatch({ ...newBatch, unit })}
+              >
+                <SelectTrigger id="unit" className="col-span-3">
+                  <SelectValue placeholder="Select a unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                  <SelectItem value="L">Liters (L)</SelectItem>
+                  <SelectItem value="pcs">Pieces (pcs)</SelectItem>
+                  <SelectItem value="g">Grams (g)</SelectItem>
+                  <SelectItem value="ml">Milliliters (ml)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="status" className="text-right">
@@ -665,7 +721,6 @@ const Production = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="planned">Planned</SelectItem>
-                  <SelectItem value="in-progress">In Progress</SelectItem>
                   <SelectItem value="completed">Completed</SelectItem>
                 </SelectContent>
               </Select>

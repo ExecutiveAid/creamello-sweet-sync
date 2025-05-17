@@ -12,6 +12,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/AuthContext';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Type definition for inventory product (matching Supabase schema)
 interface InventoryProduct {
@@ -25,6 +32,31 @@ interface InventoryProduct {
   date_created: string;
 }
 
+// Common inventory categories
+const INVENTORY_CATEGORIES = [
+  'Gelato',
+  'Sorbet',
+  'Specialty',
+  'Ingredients',
+  'Packaging',
+  'Supplies',
+  'Dairy',
+  'Tools',
+  'Other'
+];
+
+// Common units
+const INVENTORY_UNITS = [
+  'kg',
+  'g',
+  'L',
+  'ml',
+  'pcs',
+  'box',
+  'packs',
+  'bottles'
+];
+
 const Inventory = () => {
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<InventoryProduct[]>([]);
@@ -34,6 +66,7 @@ const Inventory = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const { staff } = useAuth();
   const isAdmin = staff?.role === 'admin';
   const isManager = staff?.role === 'manager';
@@ -104,8 +137,14 @@ const Inventory = () => {
     if (endDate) {
       filtered = filtered.filter(product => product.date_created <= endDate);
     }
+    
+    // Apply low stock filter if enabled
+    if (showLowStockOnly) {
+      filtered = filtered.filter(product => product.available_quantity <= 6);
+    }
+    
     setFilteredProducts(filtered);
-  }, [searchQuery, products, startDate, endDate]);
+  }, [searchQuery, products, startDate, endDate, showLowStockOnly]);
 
   const getCategoryBadge = (category: string) => {
     switch (category.toLowerCase()) {
@@ -150,24 +189,71 @@ const Inventory = () => {
           <Button onClick={() => setDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" /> New Inventory Item
           </Button>
-          <Button>View Stock Alerts</Button>
         </div>
       </div>
       {error && <div className="text-red-600">{error}</div>}
-      <div className="flex gap-2 items-center mb-2">
-        <label>From:</label>
-        <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
-        <label>To:</label>
-        <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
-        <Button
-          variant="outline"
-          onClick={() => {
-            setStartDate('');
-            setEndDate('');
-          }}
-          disabled={!startDate && !endDate}
-        >Clear</Button>
+      
+      {/* Filter Controls */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center mr-4">
+          <input
+            type="checkbox"
+            id="lowStockFilter"
+            checked={showLowStockOnly}
+            onChange={(e) => setShowLowStockOnly(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-creamello-purple focus:ring-creamello-purple mr-2"
+          />
+          <label htmlFor="lowStockFilter" className="text-sm font-medium flex items-center">
+            <AlertTriangle className="h-4 w-4 text-amber-500 mr-1" />
+            Show Low Stock Only
+          </label>
+        </div>
+        
+        <div className="flex gap-2 items-center">
+          <label>From:</label>
+          <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
+          <label>To:</label>
+          <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
+          <Button
+            variant="outline"
+            onClick={() => {
+              setStartDate('');
+              setEndDate('');
+            }}
+            disabled={!startDate && !endDate}
+          >Clear</Button>
+        </div>
+        
+        {showLowStockOnly && filteredProducts.length === 0 && (
+          <p className="text-sm text-muted-foreground">No low stock items found</p>
+        )}
+        
+        {showLowStockOnly && (
+          <Badge className="bg-amber-500">
+            {filteredProducts.length} Low Stock {filteredProducts.length === 1 ? 'Item' : 'Items'}
+          </Badge>
+        )}
       </div>
+      
+      {/* Low Stock Alert Section */}
+      {products.filter(p => p.available_quantity <= 6).length > 0 && (
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-md mb-6">
+          <div className="flex items-center">
+            <AlertTriangle className="h-6 w-6 text-amber-500 mr-3" />
+            <h3 className="text-lg font-bold text-amber-700">Low Stock Alert</h3>
+          </div>
+          <div className="mt-2">
+            <p className="text-amber-700 mb-2">The following items are running low and need to be restocked:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              {products.filter(p => p.available_quantity <= 6).map(product => (
+                <li key={product.id} className="text-amber-700">
+                  <span className="font-semibold">{product.name}</span>: Only {product.available_quantity} {product.unit} remaining
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       
       <DataTable
         data={loading ? [] : filteredProducts}
@@ -248,12 +334,21 @@ const Inventory = () => {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="category" className="text-right">Category *</Label>
-              <Input
-                id="category"
+              <Select
                 value={newItem.category}
-                onChange={e => setNewItem({ ...newItem, category: e.target.value })}
-                className="col-span-3"
-              />
+                onValueChange={value => setNewItem({ ...newItem, category: value })}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INVENTORY_CATEGORIES.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="available_quantity" className="text-right">Available *</Label>
@@ -267,12 +362,21 @@ const Inventory = () => {
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="unit" className="text-right">Unit *</Label>
-              <Input
-                id="unit"
+              <Select
                 value={newItem.unit}
-                onChange={e => setNewItem({ ...newItem, unit: e.target.value })}
-                className="col-span-3"
-              />
+                onValueChange={value => setNewItem({ ...newItem, unit: value })}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INVENTORY_UNITS.map((unit) => (
+                    <SelectItem key={unit} value={unit}>
+                      {unit}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="price_per_unit" className="text-right">Price *</Label>

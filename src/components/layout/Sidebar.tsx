@@ -68,15 +68,18 @@ export const AppSidebar = () => {
       {/* Navigation items */}
       <SidebarContent className={cn("py-2", isCollapsed ? "px-2" : "px-4")}>
         <div className="space-y-1">
-          {/* Dashboard - visible to everyone */}
-          <NavItem to="/" icon={ChartPie} exact={true}>Dashboard</NavItem>
+          {/* Dashboard link - point staff to /dashboard, admin/managers to /sales */}
+          {isAdminOrManager ? (
+            <NavItem to="/sales" icon={ChartPie} exact={true}>Dashboard</NavItem>
+          ) : (
+            <NavItem to="/dashboard" icon={ChartPie} exact={true}>Dashboard</NavItem>
+          )}
           
           {/* Admin/Manager only sections */}
           {isAdminOrManager && (
             <>
               <NavItem to="/production" icon={ClipboardList}>Production</NavItem>
               <NavItem to="/inventory" icon={Package}>Inventory</NavItem>
-              <NavItem to="/sales" icon={ShoppingCart}>Sales</NavItem>
               <NavItem to="/reports" icon={ChartPie}>Reports</NavItem>
             </>
           )}

@@ -79,18 +79,13 @@ const Dashboard = () => {
         .reduce((sum, order) => sum + (order.total || 0), 0);
       setTodaySales(todaySalesSum);
 
-      // Calculate sales from past 24 hours
-      const past24Hours = new Date();
-      past24Hours.setHours(past24Hours.getHours() - 24);
-      
-      // Count completed orders from past 24 hours
-      const recentOrdersCount = (orders || [])
+      // Count orders from today (same period as Today's Sales)
+      const todayOrdersCount = (orders || [])
         .filter(order => {
-          const orderDate = new Date(order.created_at);
-          return orderDate >= past24Hours && order.status === 'completed';
+          return order.created_at.slice(0, 10) === today && order.status === 'completed';
         }).length;
       
-      setSalesPast24Hours(recentOrdersCount);
+      setSalesPast24Hours(todayOrdersCount);
 
       // Daily Sales (last 14 days) - We'll keep this calculation but not display the chart
       const salesByDay: Record<string, number> = {};
@@ -311,7 +306,7 @@ const Dashboard = () => {
         <DashboardCard
           title="Orders Today"
           value={loading ? 'Loading...' : salesPast24Hours.toString()}
-          description="Orders made in the past 24 hours"
+          description="Orders made today"
           icon={null}
           trend={null}
           trendValue=""
