@@ -240,9 +240,13 @@ const Sales = () => {
         
         setHourlyData(hourlyDataArray);
 
-        // Product Performance (top-selling menu items)
+        // Product Performance (top-selling menu items) - Daily reset
+        const today = format(new Date(), 'yyyy-MM-dd');
         const itemSales: Record<string, { name: string, sales: number }> = {};
         (orders || []).forEach(order => {
+          // Only process today's orders
+          if (order.created_at.slice(0, 10) !== today) return;
+
           (order.order_items || []).forEach(item => {
             const name = item.flavor_name || item.flavor_id || 'N/A';
             itemSales[name] = itemSales[name] || { name, sales: 0 };
@@ -254,9 +258,12 @@ const Sales = () => {
           .slice(0, 4);
         setProductPerformance(perf);
 
-        // Calculate payment method distribution
+        // Calculate payment method distribution - Daily reset
         const paymentMethodCounts: Record<string, number> = {};
         (orders || []).forEach(order => {
+          // Only process today's orders
+          if (order.created_at.slice(0, 10) !== today) return;
+
           if (order.status === 'completed') {
             const method = order.payment_method || 'Unknown';
             paymentMethodCounts[method] = (paymentMethodCounts[method] || 0) + 1;
@@ -273,9 +280,12 @@ const Sales = () => {
 
         setPaymentMethods(paymentMethodsArray);
         
-        // Calculate sales per employee
+        // Calculate sales per employee - Daily reset
         const salesByEmployee: Record<string, number> = {};
         (orders || []).forEach(order => {
+          // Only process today's orders
+          if (order.created_at.slice(0, 10) !== today) return;
+
           if (order.staff_id) {
             const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
             salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
@@ -289,9 +299,12 @@ const Sales = () => {
           
         setEmployeeSales(employeeSalesArray);
         
-        // Process orders by status (completed vs cancelled)
+        // Process orders by status (completed vs cancelled) - Daily reset
         const ordersByStatus: Record<string, number> = {};
         (orders || []).forEach(order => {
+          // Only process today's orders
+          if (order.created_at.slice(0, 10) !== today) return;
+
           const status = order.status || 'unknown';
           ordersByStatus[status] = (ordersByStatus[status] || 0) + 1;
         });
@@ -471,28 +484,84 @@ const Sales = () => {
       // Also refresh the inventory data
       await fetchInventoryData();
       
-      // Process orders by status (completed vs cancelled)
+      // Product Performance (top-selling menu items) - Daily reset
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const itemSales: Record<string, { name: string, sales: number }> = {};
+      (orders || []).forEach(order => {
+        // Only process today's orders
+        if (order.created_at.slice(0, 10) !== today) return;
+
+        (order.order_items || []).forEach(item => {
+          const name = item.flavor_name || item.flavor_id || 'N/A';
+          itemSales[name] = itemSales[name] || { name, sales: 0 };
+          itemSales[name].sales += item.scoops || 1;
+        });
+      });
+      const perf = Object.values(itemSales)
+        .sort((a, b) => b.sales - a.sales)
+        .slice(0, 4);
+      setProductPerformance(perf);
+
+      // Payment Methods - Daily reset
+      const paymentMethodCounts: Record<string, number> = {};
+      (orders || []).forEach(order => {
+        // Only process today's orders
+        if (order.created_at.slice(0, 10) !== today) return;
+
+        if (order.status === 'completed') {
+          const method = order.payment_method || 'Unknown';
+          paymentMethodCounts[method] = (paymentMethodCounts[method] || 0) + 1;
+        }
+      });
+
+      const paymentMethodsArray = Object.entries(paymentMethodCounts)
+        .map(([name, value]) => ({ 
+          name: name.charAt(0).toUpperCase() + name.slice(1),
+          value 
+        }))
+        .sort((a, b) => b.value - a.value);
+      setPaymentMethods(paymentMethodsArray);
+      
+      // Sales per employee - Daily reset
+      const salesByEmployee: Record<string, number> = {};
+      (orders || []).forEach(order => {
+        // Only process today's orders
+        if (order.created_at.slice(0, 10) !== today) return;
+
+        if (order.staff_id) {
+          const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
+          salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
+        }
+      });
+      
+      const employeeSalesArray = Object.entries(salesByEmployee)
+        .map(([name, amount]) => ({ name, amount }))
+        .sort((a, b) => b.amount - a.amount);
+      setEmployeeSales(employeeSalesArray);
+      
+      // Order Status - Daily reset
       const ordersByStatus: Record<string, number> = {};
       (orders || []).forEach(order => {
+        // Only process today's orders
+        if (order.created_at.slice(0, 10) !== today) return;
+
         const status = order.status || 'unknown';
         ordersByStatus[status] = (ordersByStatus[status] || 0) + 1;
       });
       
-      // Prepare data for the chart with specific colors
       const statusColors: Record<string, string> = {
-        completed: "#4CAF50", // green
-        cancelled: "#F44336", // red
-        unknown: "#9E9E9E"    // gray
+        completed: "#4CAF50",
+        cancelled: "#F44336",
+        unknown: "#9E9E9E"
       };
       
       const statusData = Object.entries(ordersByStatus)
         .map(([name, value]) => ({
-          name: name.charAt(0).toUpperCase() + name.slice(1), // Capitalize first letter
+          name: name.charAt(0).toUpperCase() + name.slice(1),
           value,
-          color: statusColors[name] || "#9E9E9E" // Default to gray if status not in our color map
+          color: statusColors[name] || "#9E9E9E"
         }))
         .sort((a, b) => b.value - a.value);
-        
       setOrderStatusData(statusData);
       
       toast({

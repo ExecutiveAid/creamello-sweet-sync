@@ -151,9 +151,12 @@ const Dashboard = () => {
             return acc;
           }, {});
           
-          // Calculate sales per employee
+          // Calculate sales per employee - Daily reset
           const salesByEmployee: Record<string, number> = {};
           (orders || []).forEach(order => {
+            // Only process today's orders
+            if (order.created_at.slice(0, 10) !== today) return;
+            
             if (order.staff_id) {
               const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
               salesByEmployee[employeeName] = (salesByEmployee[employeeName] || 0) + (order.total || 0);
@@ -167,9 +170,12 @@ const Dashboard = () => {
             
           setEmployeeSales(employeeSalesArray);
           
-          // Calculate orders per employee (count of orders instead of cash value)
+          // Calculate orders per employee (count of orders instead of cash value) - Daily reset
           const ordersByEmployee: Record<string, number> = {};
           (orders || []).forEach(order => {
+            // Only process today's orders
+            if (order.created_at.slice(0, 10) !== today) return;
+            
             if (order.staff_id && order.status === 'completed') {
               const employeeName = staffMap[order.staff_id] || `Staff ID: ${order.staff_id}`;
               ordersByEmployee[employeeName] = (ordersByEmployee[employeeName] || 0) + 1;
@@ -189,9 +195,12 @@ const Dashboard = () => {
   
       fetchEmployeeSalesData();
       
-      // Product Performance (top-selling menu items)
+      // Product Performance (top-selling menu items) - Daily reset
       const itemSales: Record<string, { name: string, sales: number }> = {};
       (orders || []).forEach(order => {
+        // Only process today's orders
+        if (order.created_at.slice(0, 10) !== today) return;
+        
         (order.order_items || []).forEach((item: any) => {
           const name = item.flavor_name || item.flavor_id || 'N/A';
           itemSales[name] = itemSales[name] || { name, sales: 0 };
