@@ -39,6 +39,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Pencil, Trash2, Plus, Clock, Calendar } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { format, parseISO, differenceInMinutes, addDays, startOfWeek, endOfWeek } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import Receipt, { ReceiptTemplate, ReceiptOrder } from '@/components/Receipt';
+import { printReceipt } from '@/utils/receiptPrinter';
 
 // Type for menu items
 interface MenuItem {
@@ -109,6 +112,42 @@ const Settings = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
 
+  // Business Operations settings
+  const [businessHours, setBusinessHours] = useState({
+    openTime: '11:00',
+    closeTime: '23:00'
+  });
+  const [lowStockThreshold, setLowStockThreshold] = useState(10);
+  const [autoCompleteMinutes, setAutoCompleteMinutes] = useState(15);
+  const [taxRate, setTaxRate] = useState(0);
+  const [receiptSettings, setReceiptSettings] = useState({
+    autoPrint: false,
+    showLogo: true,
+    footerText: 'Thank you for visiting Creamello!'
+  });
+
+  // Receipt Template settings
+  const [receiptTemplate, setReceiptTemplate] = useState({
+    shopName: 'CREAMELLO',
+    address: '123 Ice Cream Lane, Accra',
+    phone: '055-123-4567',
+    width: 48, // characters (58mm = 32, 80mm = 48)
+    showHeader: true,
+    showFooter: true,
+    showQrCode: false,
+    headerText: 'CASH RECEIPT',
+    footerText: 'Thank you for your business!\nVisit us again soon!',
+    customMessage: '',
+    showOrderDetails: true,
+    showStaffInfo: true,
+    showDateTime: true,
+    showTableInfo: true,
+    showCustomerInfo: true,
+    paperSize: '80mm', // '58mm' or '80mm'
+    encoding: 'utf-8',
+    cutType: 'full', // 'full', 'partial', 'none'
+  });
+
   useEffect(() => {
     const fetchSettings = async () => {
       const { data, error } = await supabase.from('settings').select('*').limit(1).single();
@@ -126,6 +165,39 @@ const Settings = () => {
         setTheme(data.theme || 'light');
         setDateFormat(data.date_format || 'MM/DD/YYYY');
         setAutoRefresh(data.auto_refresh !== undefined ? data.auto_refresh : true);
+        
+        // Load business operations settings
+        setBusinessHours(data.business_hours || { openTime: '11:00', closeTime: '23:00' });
+        setLowStockThreshold(data.low_stock_threshold || 10);
+        setAutoCompleteMinutes(data.auto_complete_minutes || 15);
+        setTaxRate(data.tax_rate || 0);
+        setReceiptSettings(data.receipt_settings || {
+          autoPrint: false,
+          showLogo: true,
+          footerText: 'Thank you for visiting Creamello!'
+        });
+        
+        // Load receipt template settings
+        setReceiptTemplate(data.receipt_template || {
+          shopName: 'CREAMELLO',
+          address: '123 Ice Cream Lane, Accra',
+          phone: '055-123-4567',
+          width: 48,
+          showHeader: true,
+          showFooter: true,
+          showQrCode: false,
+          headerText: 'CASH RECEIPT',
+          footerText: 'Thank you for your business!\nVisit us again soon!',
+          customMessage: '',
+          showOrderDetails: true,
+          showStaffInfo: true,
+          showDateTime: true,
+          showTableInfo: true,
+          showCustomerInfo: true,
+          paperSize: '80mm',
+          encoding: 'utf-8',
+          cutType: 'full',
+        });
       }
     };
     fetchSettings();
@@ -251,6 +323,12 @@ const Settings = () => {
       theme,
       date_format: dateFormat,
       auto_refresh: autoRefresh,
+      business_hours: businessHours,
+      low_stock_threshold: lowStockThreshold,
+      auto_complete_minutes: autoCompleteMinutes,
+      tax_rate: taxRate,
+      receipt_settings: receiptSettings,
+      receipt_template: receiptTemplate,
       ...overrides,
     };
     const { error } = await supabase.from('settings').upsert(upsertData, { onConflict: 'id' });
@@ -300,6 +378,143 @@ const Settings = () => {
       toast({
         title: 'Error',
         description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSaveBusinessOperations = async () => {
+    // Validate business hours
+    if (businessHours.openTime >= businessHours.closeTime) {
+      toast({
+        title: 'Invalid Business Hours',
+        description: 'Opening time must be before closing time.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Validate numeric inputs
+    if (lowStockThreshold < 0 || autoCompleteMinutes < 0 || taxRate < 0) {
+      toast({
+        title: 'Invalid Values',
+        description: 'Values cannot be negative.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (taxRate > 100) {
+      toast({
+        title: 'Invalid Tax Rate',
+        description: 'Tax rate cannot exceed 100%.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const error = await saveSettings();
+    if (!error) {
+      toast({
+        title: 'Business Operations Updated',
+        description: 'Your business operations settings have been saved.'
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSaveReceiptSettings = async () => {
+    // Validate receipt template
+    if (!receiptTemplate.shopName || !receiptTemplate.address || !receiptTemplate.phone) {
+      toast({
+        title: 'Missing Required Fields',
+        description: 'Shop name, address, and phone are required.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (receiptTemplate.width < 20 || receiptTemplate.width > 80) {
+      toast({
+        title: 'Invalid Width',
+        description: 'Receipt width must be between 20 and 80 characters.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const error = await saveSettings();
+    if (!error) {
+      toast({
+        title: 'Receipt Settings Updated',
+        description: 'Your receipt template has been saved successfully.'
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleTestPrint = async () => {
+    const testOrder: ReceiptOrder = {
+      id: 'test-order',
+      orderNumber: 'TEST-001',
+      items: [
+        {
+          name: 'Vanilla Ice Cream',
+          quantity: 2,
+          price: 5.00,
+          total: 10.00
+        },
+        {
+          name: 'Chocolate Sauce',
+          quantity: 1,
+          price: 2.00,
+          total: 2.00
+        }
+      ],
+      subtotal: 12.00,
+      tax: 0,
+      total: 12.00,
+      paymentMethod: 'Cash',
+      amountPaid: 15.00,
+      change: 3.00,
+      customerName: 'Test Customer',
+      tableNumber: '5',
+      staffName: 'Test Staff',
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      const success = await printReceipt(receiptTemplate, testOrder, {
+        autoCut: receiptTemplate.cutType !== 'none',
+        openDrawer: false
+      });
+
+      if (success) {
+        toast({
+          title: 'Test Print Successful',
+          description: 'Receipt sent to printer successfully.'
+        });
+      } else {
+        toast({
+          title: 'Print Failed',
+          description: 'Could not print receipt. Check printer connection.',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Print Error',
+        description: 'An error occurred while printing.',
         variant: 'destructive'
       });
     }
@@ -427,10 +642,12 @@ const Settings = () => {
       </div>
 
       <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full md:w-[600px] grid-cols-5">
+        <TabsList className="grid w-full md:w-[900px] grid-cols-7">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="system">System</TabsTrigger>
+          {isAdmin && <TabsTrigger value="business">Business</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="receipts">Receipts</TabsTrigger>}
           {isAdmin && <TabsTrigger value="staff">Staff</TabsTrigger>}
           {isAdmin && <TabsTrigger value="menu">Menu Items</TabsTrigger>}
         </TabsList>
@@ -605,6 +822,441 @@ const Settings = () => {
             </CardFooter>
           </Card>
         </TabsContent>
+
+        {isAdmin && (
+          <TabsContent value="business">
+            <Card>
+              <CardHeader>
+                <CardTitle>Business Operations</CardTitle>
+                <CardDescription>
+                  Configure business hours, inventory thresholds, and operational settings.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                
+                {/* Business Hours Section */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Business Hours</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="openTime">Opening Time</Label>
+                      <Input
+                        id="openTime"
+                        type="time"
+                        value={businessHours.openTime}
+                        onChange={(e) => setBusinessHours({ ...businessHours, openTime: e.target.value })}
+                        className="font-mono"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="closeTime">Closing Time</Label>
+                      <Input
+                        id="closeTime"
+                        type="time"
+                        value={businessHours.closeTime}
+                        onChange={(e) => setBusinessHours({ ...businessHours, closeTime: e.target.value })}
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    These hours affect order taking availability and dashboard analytics.
+                  </p>
+                </div>
+
+                {/* Inventory Management Section */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Inventory Management</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="lowStockThreshold">Low Stock Alert Threshold</Label>
+                    <Input
+                      id="lowStockThreshold"
+                      type="number"
+                      min="0"
+                      value={lowStockThreshold}
+                      onChange={(e) => setLowStockThreshold(Number(e.target.value))}
+                      className="w-32"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Receive alerts when inventory items drop below this quantity.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Order Management Section */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Order Management</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="autoCompleteMinutes">Auto-Complete Orders After</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        id="autoCompleteMinutes"
+                        type="number"
+                        min="0"
+                        value={autoCompleteMinutes}
+                        onChange={(e) => setAutoCompleteMinutes(Number(e.target.value))}
+                        className="w-20"
+                      />
+                      <span className="text-sm text-muted-foreground">minutes</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Automatically mark orders as completed after this time (0 = disabled).
+                    </p>
+                  </div>
+                </div>
+
+                {/* Financial Settings Section */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Financial Settings</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="taxRate">Tax Rate (%)</Label>
+                    <div className="flex items-center space-x-2">
+                      <Input
+                        id="taxRate"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={taxRate}
+                        onChange={(e) => setTaxRate(Number(e.target.value))}
+                        className="w-24"
+                      />
+                      <span className="text-sm text-muted-foreground">%</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Sales tax rate applied to orders (if applicable).
+                    </p>
+                  </div>
+                </div>
+
+              </CardContent>
+              <CardFooter>
+                <Button onClick={handleSaveBusinessOperations} className="w-full md:w-auto">
+                  Save Business Settings
+                </Button>
+              </CardFooter>
+            </Card>
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="receipts">
+            <div className="space-y-6">
+              
+              {/* Receipt Template Configuration */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Receipt Template</CardTitle>
+                  <CardDescription>
+                    Configure your receipt layout for POS printer compatibility (58mm/80mm thermal printers).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  
+                  {/* Basic Info Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold border-b pb-2">Shop Information</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="shop-name">Shop Name</Label>
+                        <Input
+                          id="shop-name"
+                          value={receiptTemplate.shopName}
+                          onChange={(e) => setReceiptTemplate({ ...receiptTemplate, shopName: e.target.value })}
+                          placeholder="CREAMELLO"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="receipt-phone">Phone Number</Label>
+                        <Input
+                          id="receipt-phone"
+                          value={receiptTemplate.phone}
+                          onChange={(e) => setReceiptTemplate({ ...receiptTemplate, phone: e.target.value })}
+                          placeholder="055-123-4567"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="receipt-address">Address</Label>
+                      <Textarea
+                        id="receipt-address"
+                        value={receiptTemplate.address}
+                        onChange={(e) => setReceiptTemplate({ ...receiptTemplate, address: e.target.value })}
+                        placeholder="123 Ice Cream Lane, Accra"
+                        className="resize-none"
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Printer Settings */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold border-b pb-2">Printer Settings</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="paper-size">Paper Size</Label>
+                        <Select 
+                          value={receiptTemplate.paperSize} 
+                          onValueChange={(v) => {
+                            const width = v === '58mm' ? 32 : 48;
+                            setReceiptTemplate({ ...receiptTemplate, paperSize: v, width });
+                          }}
+                        >
+                          <SelectTrigger id="paper-size">
+                            <SelectValue placeholder="Select paper size" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="58mm">58mm (32 chars)</SelectItem>
+                            <SelectItem value="80mm">80mm (48 chars)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="receipt-width">Character Width</Label>
+                        <Input
+                          id="receipt-width"
+                          type="number"
+                          min="20"
+                          max="80"
+                          value={receiptTemplate.width}
+                          onChange={(e) => setReceiptTemplate({ ...receiptTemplate, width: Number(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="cut-type">Paper Cut</Label>
+                        <Select 
+                          value={receiptTemplate.cutType} 
+                          onValueChange={(v) => setReceiptTemplate({ ...receiptTemplate, cutType: v })}
+                        >
+                          <SelectTrigger id="cut-type">
+                            <SelectValue placeholder="Select cut type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="full">Full Cut</SelectItem>
+                            <SelectItem value="partial">Partial Cut</SelectItem>
+                            <SelectItem value="none">No Cut</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Layout Options */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold border-b pb-2">Receipt Layout</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Show Header</p>
+                            <p className="text-sm text-muted-foreground">Display shop name and address</p>
+                          </div>
+                          <Switch 
+                            checked={receiptTemplate.showHeader} 
+                            onCheckedChange={(checked) => 
+                              setReceiptTemplate({ ...receiptTemplate, showHeader: checked })
+                            } 
+                          />
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Show Date & Time</p>
+                            <p className="text-sm text-muted-foreground">Display order timestamp</p>
+                          </div>
+                          <Switch 
+                            checked={receiptTemplate.showDateTime} 
+                            onCheckedChange={(checked) => 
+                              setReceiptTemplate({ ...receiptTemplate, showDateTime: checked })
+                            } 
+                          />
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Show Staff Info</p>
+                            <p className="text-sm text-muted-foreground">Display staff member name</p>
+                          </div>
+                          <Switch 
+                            checked={receiptTemplate.showStaffInfo} 
+                            onCheckedChange={(checked) => 
+                              setReceiptTemplate({ ...receiptTemplate, showStaffInfo: checked })
+                            } 
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Show Table Info</p>
+                            <p className="text-sm text-muted-foreground">Display table number</p>
+                          </div>
+                          <Switch 
+                            checked={receiptTemplate.showTableInfo} 
+                            onCheckedChange={(checked) => 
+                              setReceiptTemplate({ ...receiptTemplate, showTableInfo: checked })
+                            } 
+                          />
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Show Customer Info</p>
+                            <p className="text-sm text-muted-foreground">Display customer name</p>
+                          </div>
+                          <Switch 
+                            checked={receiptTemplate.showCustomerInfo} 
+                            onCheckedChange={(checked) => 
+                              setReceiptTemplate({ ...receiptTemplate, showCustomerInfo: checked })
+                            } 
+                          />
+                        </div>
+                        
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">Show QR Code</p>
+                            <p className="text-sm text-muted-foreground">Display QR code for order</p>
+                          </div>
+                          <Switch 
+                            checked={receiptTemplate.showQrCode} 
+                            onCheckedChange={(checked) => 
+                              setReceiptTemplate({ ...receiptTemplate, showQrCode: checked })
+                            } 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Text Content */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-semibold border-b pb-2">Custom Messages</h3>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="header-text">Header Text</Label>
+                        <Input
+                          id="header-text"
+                          value={receiptTemplate.headerText}
+                          onChange={(e) => setReceiptTemplate({ ...receiptTemplate, headerText: e.target.value })}
+                          placeholder="CASH RECEIPT"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="footer-message">Footer Message</Label>
+                        <Textarea
+                          id="footer-message"
+                          value={receiptTemplate.footerText}
+                          onChange={(e) => setReceiptTemplate({ ...receiptTemplate, footerText: e.target.value })}
+                          placeholder="Thank you for your business!&#10;Visit us again soon!"
+                          className="resize-none"
+                          rows={3}
+                        />
+                        <p className="text-sm text-muted-foreground">
+                          Use \n for line breaks
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-message">Custom Message</Label>
+                        <Textarea
+                          id="custom-message"
+                          value={receiptTemplate.customMessage}
+                          onChange={(e) => setReceiptTemplate({ ...receiptTemplate, customMessage: e.target.value })}
+                          placeholder="Special promotions, opening hours, etc."
+                          className="resize-none"
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                </CardContent>
+                <CardFooter>
+                  <Button onClick={handleSaveReceiptSettings} className="w-full md:w-auto">
+                    Save Receipt Settings
+                  </Button>
+                </CardFooter>
+              </Card>
+
+              {/* Receipt Preview */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Receipt Preview</CardTitle>
+                  <CardDescription>
+                    Preview how your receipt will look on POS printers.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Receipt 
+                    template={receiptTemplate}
+                    order={{
+                      id: 'preview-order',
+                      orderNumber: 'ORD-001',
+                      items: [
+                        {
+                          name: 'Vanilla Ice Cream',
+                          quantity: 2,
+                          price: 5.00,
+                          total: 10.00
+                        },
+                        {
+                          name: 'Chocolate Sauce',
+                          quantity: 1,
+                          price: 2.00,
+                          total: 2.00
+                        }
+                      ],
+                      subtotal: 12.00,
+                      tax: 0,
+                      total: 12.00,
+                      paymentMethod: 'Cash',
+                      amountPaid: 15.00,
+                      change: 3.00,
+                      customerName: 'John Doe',
+                      tableNumber: '5',
+                      staffName: 'Sample Staff',
+                      createdAt: new Date().toISOString()
+                    }}
+                    isPreview={true}
+                  />
+                </CardContent>
+                <CardFooter className="flex gap-2">
+                  <Button onClick={handleTestPrint} variant="outline" className="flex-1">
+                    🖨️ Test Print
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      // Copy receipt text to clipboard for debugging
+                      const testOrder = {
+                        id: 'test-order',
+                        orderNumber: 'TEST-001',
+                        items: [
+                          { name: 'Vanilla Ice Cream', quantity: 2, price: 5.00, total: 10.00 },
+                          { name: 'Chocolate Sauce', quantity: 1, price: 2.00, total: 2.00 }
+                        ],
+                        subtotal: 12.00, tax: 0, total: 12.00, paymentMethod: 'Cash',
+                        amountPaid: 15.00, change: 3.00, customerName: 'Test Customer',
+                        tableNumber: '5', staffName: 'Test Staff', createdAt: new Date().toISOString()
+                      };
+                      
+                      import('@/utils/receiptPrinter').then(({ ReceiptPrinter }) => {
+                        const printer = new ReceiptPrinter(receiptTemplate);
+                        const receiptText = printer.generateReceiptText(testOrder);
+                        navigator.clipboard.writeText(receiptText);
+                        toast({ title: 'Receipt Text Copied', description: 'Raw receipt text copied to clipboard for debugging.' });
+                      });
+                    }}
+                    variant="ghost" 
+                    size="sm"
+                  >
+                    📋 Copy Raw
+                  </Button>
+                </CardFooter>
+              </Card>
+              
+            </div>
+          </TabsContent>
+        )}
 
         {isAdmin && (
           <TabsContent value="staff">

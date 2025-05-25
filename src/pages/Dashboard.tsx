@@ -366,7 +366,9 @@ const Dashboard = () => {
             </ResponsiveContainer>
           </CardContent>
         </Card>
-        
+      </div>
+      
+      <div className="grid gap-4 md:grid-cols-2">        
         <Card>
           <CardHeader>
             <CardTitle>Product Performance</CardTitle>

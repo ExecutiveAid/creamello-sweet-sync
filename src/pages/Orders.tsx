@@ -16,6 +16,8 @@ import { Input } from '@/components/ui/input';
 import { format, subDays, parseISO } from 'date-fns';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import Receipt, { ReceiptTemplate, ReceiptOrder } from '@/components/Receipt';
+import { printReceipt } from '@/utils/receiptPrinter';
 
 // Types for our ice cream ordering system
 interface IceCreamFlavor {
@@ -130,77 +132,7 @@ const MENU_CATEGORIES = [
 
 const PAYMENT_METHODS = ['Cash', 'Card', 'Mobile Money'];
 
-const Receipt = ({
-  shopName = "CREAMELLO",
-  address = "123 Ice Cream Lane, Accra",
-  phone = "055-123-4567",
-  orderId,
-  date,
-  staff,
-  table,
-  customer,
-  paymentMethod,
-  items,
-  total,
-  paid,
-  change,
-}) => (
-  <div className="receipt-print" style={{
-    width: 320,
-    fontFamily: 'monospace',
-    background: '#fff',
-    color: '#222',
-    padding: 16,
-    margin: '0 auto'
-  }}>
-    <div style={{textAlign: 'center', fontWeight: 'bold', fontSize: 18}}>{shopName}</div>
-    <div style={{textAlign: 'center', fontSize: 12}}>{address}<br/>Tel: {phone}</div>
-    <hr />
-    <div style={{textAlign: 'center', fontWeight: 'bold'}}>CASH RECEIPT</div>
-    <div style={{fontSize: 12, margin: '8px 0'}}>
-      Order: {orderId} <br/>
-      Date: {date} <br/>
-      Staff: {staff} <br/>
-      {table && <>Table: {table} <br/></>}
-      {customer && <>Customer: {customer} <br/></>}
-      Payment: {paymentMethod}
-    </div>
-    <hr />
-    <div style={{display: 'flex', fontWeight: 'bold'}}>
-      <span style={{flex: 2}}>Item</span>
-      <span style={{flex: 1, textAlign: 'center'}}>Qty</span>
-      <span style={{flex: 1, textAlign: 'right'}}>Price</span>
-      <span style={{flex: 1, textAlign: 'right'}}>Total</span>
-    </div>
-    {items.map(item => (
-      <div key={item.id} style={{display: 'flex', fontSize: 12}}>
-        <span style={{flex: 2}}>{item.name}</span>
-        <span style={{flex: 1, textAlign: 'center'}}>{item.quantity}</span>
-        <span style={{flex: 1, textAlign: 'right'}}>GHS {item.price.toFixed(2)}</span>
-        <span style={{flex: 1, textAlign: 'right'}}>GHS {(item.price * item.quantity).toFixed(2)}</span>
-      </div>
-    ))}
-    <hr />
-    <div style={{display: 'flex', fontWeight: 'bold', fontSize: 16}}>
-      <span style={{flex: 3}}>TOTAL</span>
-      <span style={{flex: 1, textAlign: 'right'}}>GHS {total.toFixed(2)}</span>
-    </div>
-    {paymentMethod === 'Cash' && (
-      <>
-        <div style={{display: 'flex', fontSize: 12}}>
-          <span style={{flex: 3}}>Paid</span>
-          <span style={{flex: 1, textAlign: 'right'}}>GHS {paid ? paid.toFixed(2) : total.toFixed(2)}</span>
-        </div>
-        <div style={{display: 'flex', fontSize: 12}}>
-          <span style={{flex: 3}}>Change</span>
-          <span style={{flex: 1, textAlign: 'right'}}>GHS {change ? change.toFixed(2) : '0.00'}</span>
-        </div>
-      </>
-    )}
-    <hr />
-    <div style={{textAlign: 'center', fontWeight: 'bold', margin: '12px 0'}}>THANK YOU!</div>
-  </div>
-);
+// Removed old hardcoded Receipt component - now using configurable Receipt from components
 
 const Orders = () => {
   // All hooks must be declared here, inside the component:
@@ -245,6 +177,34 @@ const Orders = () => {
 
   const [staffList, setStaffList] = useState<{ [id: string]: string }>({});
 
+  // Receipt template state
+  const [receiptTemplate, setReceiptTemplate] = useState<ReceiptTemplate>({
+    shopName: 'CREAMELLO',
+    address: '123 Ice Cream Lane, Accra',
+    phone: '055-123-4567',
+    width: 48,
+    showHeader: true,
+    showFooter: true,
+    showQrCode: false,
+    headerText: 'CASH RECEIPT',
+    footerText: 'Thank you for your business!\nVisit us again soon!',
+    customMessage: '',
+    showOrderDetails: true,
+    showStaffInfo: true,
+    showDateTime: true,
+    showTableInfo: true,
+    showCustomerInfo: true,
+    paperSize: '80mm',
+    encoding: 'utf-8',
+    cutType: 'full',
+  });
+
+  const [receiptSettings, setReceiptSettings] = useState({
+    autoPrint: false,
+    showLogo: true,
+    footerText: 'Thank you for visiting Creamello!'
+  });
+
   useEffect(() => {
     const fetchMenuItems = async () => {
       setLoadingMenu(true);
@@ -275,6 +235,18 @@ const Orders = () => {
     fetchStaff();
   }, []);
 
+  // Load receipt settings from database
+  useEffect(() => {
+    const fetchReceiptSettings = async () => {
+      const { data, error } = await supabase.from('settings').select('*').limit(1).single();
+      if (data) {
+        setReceiptTemplate(data.receipt_template || receiptTemplate);
+        setReceiptSettings(data.receipt_settings || receiptSettings);
+      }
+    };
+    fetchReceiptSettings();
+  }, []);
+
   // Cart logic
   const addToCart = (item) => {
     setCart(prev => {
@@ -293,8 +265,61 @@ const Orders = () => {
     setOrderTotal(cart.reduce((sum, item) => sum + item.price * item.quantity, 0));
   }, [cart]);
 
-  // Print receipt
-  const printReceipt = () => {
+  // Convert order to ReceiptOrder format
+  const convertOrderToReceipt = (order: any): ReceiptOrder => {
+    return {
+      id: order.id,
+      orderNumber: order.id.slice(-6).toUpperCase(),
+      items: order.items.map((item: any) => ({
+        name: item.flavor_name || item.name || 'Unknown Item',
+        quantity: item.scoops || item.quantity || 1,
+        price: item.price || 0,
+        total: (item.price || 0) * (item.scoops || item.quantity || 1)
+      })),
+      subtotal: order.total || 0,
+      tax: 0, // Add tax calculation if needed
+      total: order.total || 0,
+      paymentMethod: order.payment_method || 'Cash',
+      amountPaid: order.paid || order.total,
+      change: order.change || 0,
+      customerName: order.customer_name || undefined,
+      tableNumber: order.table_number || undefined,
+      staffName: staffList[order.staff_id] || staff?.name || 'Unknown',
+      createdAt: order.created_at || new Date().toISOString()
+    };
+  };
+
+  // Print receipt function with auto-print support
+  const handlePrintReceipt = async (order: any) => {
+    const receiptOrder = convertOrderToReceipt(order);
+    
+    // Try to print using POS printer if auto-print is enabled
+    if (receiptSettings.autoPrint) {
+      try {
+        const success = await printReceipt(receiptTemplate, receiptOrder, {
+          autoCut: receiptTemplate.cutType !== 'none',
+          openDrawer: false
+        });
+        
+        if (success) {
+          toast({
+            title: 'Receipt Printed',
+            description: 'Receipt sent to printer successfully.'
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('Auto-print failed:', error);
+      }
+    }
+    
+    // Fallback to showing receipt dialog
+    setLastOrder(order);
+    setShowReceipt(true);
+  };
+
+  // Update the old printReceipt function
+  const printReceiptDialog = () => {
     setShowReceipt(true);
     setTimeout(() => {
       window.print();
@@ -362,16 +387,31 @@ const Orders = () => {
     };
 
     await orderContext.addOrder(order, orderItems);
-    setLastOrder({ ...order, items: orderItems, paid: amountPaid, change });
+    
+    // Show success message instead of receipt
+    toast({
+      title: "Order Placed Successfully",
+      description: `Order for ${cart.length} item(s) has been created. Complete the order to print receipt.`
+    });
+    
+    // Clear cart and form
     setCart([]);
     setTableNumber("");
     setCustomerName("");
-    setShowReceipt(true);
+    setAmountPaid(0);
   };
 
   const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
     // Use the OrderContext to update order status
     await orderContext.updateOrderStatus(orderId, newStatus);
+    
+    // If completing an order, print receipt
+    if (newStatus === 'completed') {
+      const completedOrder = orderContext.orders.find(o => o.id === orderId);
+      if (completedOrder) {
+        await handlePrintReceipt(completedOrder);
+      }
+    }
 
     toast({
       title: "Order updated",
@@ -735,43 +775,70 @@ const Orders = () => {
 
       {showReceipt && lastOrder && (
         <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-          background: 'rgba(255,255,255,0.98)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          width: '100vw', 
+          height: '100vh',
+          background: 'rgba(0,0,0,0.8)', 
+          zIndex: 9999, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          padding: '20px'
         }}>
-          <Receipt
-            shopName="CREAMELLO"
-            address="123 Ice Cream Lane, Accra"
-            phone="055-123-4567"
-            orderId={lastOrder.id}
-            date={lastOrder.created_at ? new Date(lastOrder.created_at).toLocaleString() : ''}
-            staff={staff?.name || lastOrder.staff_id}
-            table={lastOrder.table_number}
-            customer={lastOrder.customer_name}
-            paymentMethod={lastOrder.payment_method}
-            items={lastOrder.items.map(item => ({
-              name: item.flavor_name || item.name,
-              quantity: item.scoops || item.quantity,
-              price: item.price,
-              id: item.id || item.flavor_id
-            }))}
-            total={lastOrder.total}
-            paid={lastOrder.paid}
-            change={lastOrder.change}
-          />
-          <div style={{marginTop: 24, display: 'flex', gap: 16}}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '20px',
+            maxWidth: '500px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.3)'
+          }}>
+            <Receipt
+              template={receiptTemplate}
+              order={convertOrderToReceipt(lastOrder)}
+              isPreview={false}
+            />
+          </div>
+          <div style={{
+            marginTop: '20px', 
+            display: 'flex', 
+            gap: '16px'
+          }}>
             <button
               onClick={() => {
                 window.print();
               }}
-              style={{padding: '8px 24px', fontSize: 16, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 4}}
+              style={{
+                padding: '12px 24px', 
+                fontSize: '16px', 
+                background: '#7c3aed', 
+                color: '#fff', 
+                border: 'none', 
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600'
+              }}
             >
-              Print
+              🖨️ Print
             </button>
             <button
               onClick={() => setShowReceipt(false)}
-              style={{padding: '8px 24px', fontSize: 16, background: '#eee', color: '#222', border: 'none', borderRadius: 4}}
+              style={{
+                padding: '12px 24px', 
+                fontSize: '16px', 
+                background: '#6b7280', 
+                color: '#fff', 
+                border: 'none', 
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600'
+              }}
             >
-              Close
+              ✕ Close
             </button>
           </div>
         </div>

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, addDays, subDays } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, LineChart, Line } from 'recharts';
 import { exportToCSV } from '@/utils/exportCSV';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
@@ -180,21 +180,20 @@ const Sales = () => {
         }
         setDailySales(days);
         
-        // Calculate hourly data for peak hours graph
+        // Calculate hourly data for peak hours graph (Business hours: 11 AM to 11 PM) - Cumulative data
         const hourlyStats: Record<string, { orderCount: number, revenue: number }> = {};
         
-        // Initialize all 24 hours of the day with zero values
-        for (let i = 0; i < 24; i++) {
+        // Initialize only business hours (11 AM to 11 PM)
+        for (let i = 11; i <= 23; i++) {
           const hourLabel = i.toString().padStart(2, '0') + ':00';
           hourlyStats[hourLabel] = { orderCount: 0, revenue: 0 };
         }
         
-        // Populate with real data
+        // Populate with all historical order data (cumulative)
         (orders || []).forEach(order => {
           if (order.status === 'completed') {
             try {
               // Extract hour from the timestamp
-              // Ensure we're parsing the timestamp correctly
               let orderDate;
               if (order.created_at.includes('T')) {
                 // ISO string format
@@ -205,11 +204,14 @@ const Sales = () => {
               }
               
               const hour = orderDate.getHours();
-              const hourLabel = hour.toString().padStart(2, '0') + ':00';
-              
-              // Increment the order count and add to revenue for this hour
-              hourlyStats[hourLabel].orderCount += 1;
-              hourlyStats[hourLabel].revenue += (order.total || 0);
+              // Only count orders during business hours
+              if (hour >= 11 && hour <= 23) {
+                const hourLabel = hour.toString().padStart(2, '0') + ':00';
+                
+                // Increment the order count and add to revenue for this hour
+                hourlyStats[hourLabel].orderCount += 1;
+                hourlyStats[hourLabel].revenue += (order.total || 0);
+              }
             } catch (err) {
               console.error("Error processing order timestamp:", err, order);
             }
@@ -221,10 +223,9 @@ const Sales = () => {
           .map(([hour, data]) => {
             // Create more readable display hour format (12-hour format with AM/PM)
             const hourNum = parseInt(hour.split(':')[0]);
-            const displayHour = hourNum === 0 ? '12 AM' : 
-                                hourNum < 12 ? `${hourNum} AM` : 
-                                hourNum === 12 ? '12 PM' : 
-                                `${hourNum - 12} PM`;
+            const displayHour = hourNum === 12 ? '12 PM' : 
+                                hourNum > 12 ? `${hourNum - 12} PM` : 
+                                `${hourNum} AM`;
             
             return {
               hour,
@@ -234,14 +235,13 @@ const Sales = () => {
             };
           })
           .sort((a, b) => {
-            // Sort by hour (00:00 to 23:00)
+            // Sort by hour (11:00 to 23:00)
             return parseInt(a.hour.split(':')[0]) - parseInt(b.hour.split(':')[0]);
           });
         
         setHourlyData(hourlyDataArray);
 
         // Product Performance (top-selling menu items) - Daily reset
-        const today = format(new Date(), 'yyyy-MM-dd');
         const itemSales: Record<string, { name: string, sales: number }> = {};
         (orders || []).forEach(order => {
           // Only process today's orders
@@ -425,18 +425,17 @@ const Sales = () => {
       // Calculate hourly data
       const hourlyStats: Record<string, { orderCount: number, revenue: number }> = {};
       
-      // Initialize all 24 hours
-      for (let i = 0; i < 24; i++) {
+      // Initialize only business hours (11 AM to 11 PM)
+      for (let i = 11; i <= 23; i++) {
         const hourLabel = i.toString().padStart(2, '0') + ':00';
         hourlyStats[hourLabel] = { orderCount: 0, revenue: 0 };
       }
       
-      // Populate with real data
+      // Populate with all historical order data (cumulative)
       (orders || []).forEach(order => {
         if (order.status === 'completed') {
           try {
             // Extract hour from the timestamp
-            // Ensure we're parsing the timestamp correctly
             let orderDate;
             if (order.created_at.includes('T')) {
               // ISO string format
@@ -447,11 +446,14 @@ const Sales = () => {
             }
             
             const hour = orderDate.getHours();
-            const hourLabel = hour.toString().padStart(2, '0') + ':00';
-            
-            // Increment the order count and add to revenue for this hour
-            hourlyStats[hourLabel].orderCount += 1;
-            hourlyStats[hourLabel].revenue += (order.total || 0);
+            // Only count orders during business hours
+            if (hour >= 11 && hour <= 23) {
+              const hourLabel = hour.toString().padStart(2, '0') + ':00';
+              
+              // Increment the order count and add to revenue for this hour
+              hourlyStats[hourLabel].orderCount += 1;
+              hourlyStats[hourLabel].revenue += (order.total || 0);
+            }
           } catch (err) {
             console.error("Error processing order timestamp:", err, order);
           }
@@ -463,10 +465,9 @@ const Sales = () => {
         .map(([hour, data]) => {
           // Create more readable display hour format (12-hour format with AM/PM)
           const hourNum = parseInt(hour.split(':')[0]);
-          const displayHour = hourNum === 0 ? '12 AM' : 
-                              hourNum < 12 ? `${hourNum} AM` : 
-                              hourNum === 12 ? '12 PM' : 
-                              `${hourNum - 12} PM`;
+          const displayHour = hourNum === 12 ? '12 PM' : 
+                              hourNum > 12 ? `${hourNum - 12} PM` : 
+                              `${hourNum} AM`;
           
           return {
             hour,
@@ -476,6 +477,7 @@ const Sales = () => {
           };
         })
         .sort((a, b) => {
+          // Sort by hour (11:00 to 23:00)
           return parseInt(a.hour.split(':')[0]) - parseInt(b.hour.split(':')[0]);
         });
       
@@ -691,11 +693,11 @@ const Sales = () => {
         <Card>
           <CardHeader>
             <CardTitle>Peak Hours & Slow Hours</CardTitle>
-            <CardDescription>Order volume by hour of day</CardDescription>
+            <CardDescription>Cumulative order patterns by hour (all-time data)</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
+              <LineChart
                 data={loading ? [] : hourlyData}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
@@ -703,21 +705,25 @@ const Sales = () => {
                 <XAxis 
                   dataKey="displayHour" 
                   stroke="#888888"
-                  tick={{ fontSize: 11 }}
-                  interval={1}
+                  fontSize={12}
+                  angle={-45}
+                  textAnchor="end"
+                  height={60}
                 />
                 <YAxis stroke="#888888" />
                 <Tooltip
                   formatter={(value) => [`${value} orders`, 'Order Count']}
                   labelFormatter={(displayHour) => `Time: ${displayHour}`}
                 />
-                <Bar 
+                <Line 
+                  type="monotone" 
                   dataKey="orderCount" 
-                  name="Order Count" 
-                  fill="#9b87f5" 
-                  radius={[4, 4, 0, 0]} 
+                  stroke="#9b87f5" 
+                  strokeWidth={2}
+                  dot={{ fill: '#9b87f5', strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6, stroke: '#9b87f5', strokeWidth: 2 }}
                 />
-              </BarChart>
+              </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>

@@ -210,19 +210,19 @@ const Inventory = () => {
         </div>
         
         <div className="flex gap-2 items-center">
-          <label>From:</label>
-          <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
-          <label>To:</label>
-          <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
-          <Button
-            variant="outline"
-            onClick={() => {
-              setStartDate('');
-              setEndDate('');
-            }}
-            disabled={!startDate && !endDate}
-          >Clear</Button>
-        </div>
+        <label>From:</label>
+        <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
+        <label>To:</label>
+        <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
+        <Button
+          variant="outline"
+          onClick={() => {
+            setStartDate('');
+            setEndDate('');
+          }}
+          disabled={!startDate && !endDate}
+        >Clear</Button>
+      </div>
         
         {showLowStockOnly && filteredProducts.length === 0 && (
           <p className="text-sm text-muted-foreground">No low stock items found</p>

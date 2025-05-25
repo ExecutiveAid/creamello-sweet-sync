@@ -567,32 +567,32 @@ const Production = () => {
               
               // For planned or in-progress batches, allow status changes
               return (
-                <Select
-                  value={row.status}
-                  onValueChange={async (value) => {
-                    const { error } = await supabase
-                      .from('production_batches')
-                      .update({ status: value })
-                      .eq('id', row.id);
-                    if (!error) {
-                      setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
-                      setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
-                      toast({ title: 'Status Updated', description: `Batch status changed to ${value}` });
-                    } else {
-                      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-[140px] h-8">
-                    <SelectValue placeholder="Update Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="planned">Planned</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
-                  </SelectContent>
-                </Select>
+              <Select
+                value={row.status}
+                onValueChange={async (value) => {
+                  const { error } = await supabase
+                    .from('production_batches')
+                    .update({ status: value })
+                    .eq('id', row.id);
+                  if (!error) {
+                    setBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
+                    setFilteredBatches((prev) => prev.map(b => b.id === row.id ? { ...b, status: value as ProductionBatch['status'] } : b));
+                    toast({ title: 'Status Updated', description: `Batch status changed to ${value}` });
+                  } else {
+                    toast({ title: 'Error', description: error.message, variant: 'destructive' });
+                  }
+                }}
+              >
+                <SelectTrigger className="w-[140px] h-8">
+                  <SelectValue placeholder="Update Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planned">Planned</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
               );
-            },
+          },
           },
         ]}
         title="Production Batches"
