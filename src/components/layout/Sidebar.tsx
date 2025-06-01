@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
@@ -11,6 +11,7 @@ import {
 import { Package, Database, ChartPie, Settings, ShoppingCart, ClipboardList, IceCreamCone, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSidebar } from '@/components/ui/sidebar';
+import { supabase } from '@/integrations/supabase/client';
 
 type NavItemProps = {
   to: string;
@@ -53,15 +54,95 @@ export const AppSidebar = () => {
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === 'collapsed';
   
+  // Branding state
+  const [brandingSettings, setBrandingSettings] = useState({
+    customShopName: 'Creamello',
+    logoUrl: '',
+    primaryColor: '#8B5CF6',
+    useCustomLogo: false
+  });
+
+  // Load branding settings
+  useEffect(() => {
+    const loadBrandingSettings = async () => {
+      try {
+        console.log('🔄 Loading branding settings...');
+        const { data, error } = await supabase
+          .from('settings')
+          .select('branding_settings, shop_name')
+          .limit(1)
+          .single();
+        
+        console.log('📊 Database response:', { data, error });
+        
+        if (data && !error) {
+          const branding = data.branding_settings || {};
+          console.log('🎨 Branding data:', branding);
+          
+          const newSettings = {
+            customShopName: branding.customShopName || data.shop_name || 'Creamello',
+            logoUrl: branding.logoUrl || '',
+            primaryColor: branding.primaryColor || '#8B5CF6',
+            useCustomLogo: branding.useCustomLogo || false
+          };
+          
+          console.log('✅ Setting branding to:', newSettings);
+          setBrandingSettings(newSettings);
+        }
+      } catch (err) {
+        // Fallback to defaults if there's an error
+        console.error('❌ Error loading branding settings:', err);
+      }
+    };
+
+    loadBrandingSettings();
+
+    // Listen for window focus to refresh settings (when user comes back from another tab)
+    const handleFocus = () => {
+      loadBrandingSettings();
+    };
+
+    // Listen for custom events when settings are saved
+    const handleSettingsUpdate = () => {
+      console.log('🔄 Branding update event received - reloading settings');
+      loadBrandingSettings();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('brandingUpdated', handleSettingsUpdate);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('brandingUpdated', handleSettingsUpdate);
+    };
+  }, []);
+  
   return (
     <Sidebar collapsible="icon">
       {/* Header with logo */}
       <SidebarHeader className={cn("px-6 py-5", isCollapsed && "px-2")}>
         <div className={cn("flex items-center gap-2", isCollapsed && "justify-center")}>
-          <div className="h-8 w-8 rounded-lg bg-creamello-purple flex items-center justify-center">
-            <span className="text-white font-bold">C</span>
+          {brandingSettings.useCustomLogo && brandingSettings.logoUrl ? (
+            <img 
+              src={brandingSettings.logoUrl} 
+              alt="Shop Logo" 
+              className="h-8 w-8 rounded-lg object-contain"
+            />
+          ) : (
+            <div 
+              className="h-8 w-8 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: brandingSettings.primaryColor }}
+            >
+              <span className="text-white font-bold">
+                {brandingSettings.customShopName.charAt(0).toUpperCase()}
+              </span>
           </div>
-          {!isCollapsed && <h1 className="text-xl font-bold text-foreground">Creamello</h1>}
+          )}
+          {!isCollapsed && (
+            <h1 className="text-xl font-bold text-foreground">
+              {brandingSettings.customShopName}
+            </h1>
+          )}
         </div>
       </SidebarHeader>
       

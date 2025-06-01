@@ -7,7 +7,7 @@ const Header = () => {
 
   return (
     <header className="w-full flex items-center justify-between px-4 py-2 bg-white shadow">
-      <div className="font-bold text-xl">Creamello POS</div>
+      <div className="font-bold text-xl">Executive Aid POS</div>
       <div>
         {loading ? null : staff ? (
           <div className="flex items-center gap-4">

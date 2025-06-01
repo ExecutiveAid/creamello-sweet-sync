@@ -71,6 +71,12 @@ const Inventory = () => {
   const isAdmin = staff?.role === 'admin';
   const isManager = staff?.role === 'manager';
   const isAdminOrManager = isAdmin || isManager;
+  
+  // Add state for categories and product names from database
+  const [categories, setCategories] = useState<string[]>([]);
+  const [productNames, setProductNames] = useState<{name: string; category: string}[]>([]);
+  const [filteredProductNames, setFilteredProductNames] = useState<{name: string; category: string}[]>([]);
+  
   const [newItem, setNewItem] = useState({
     name: '',
     category: '',
@@ -80,6 +86,52 @@ const Inventory = () => {
     expiration_date: '',
     date_created: format(new Date(), 'yyyy-MM-dd'),
   });
+
+  // Filter product names when category changes
+  useEffect(() => {
+    if (newItem.category) {
+      const filtered = productNames.filter(product => product.category === newItem.category);
+      setFilteredProductNames(filtered);
+    } else {
+      setFilteredProductNames([]);
+    }
+  }, [newItem.category, productNames]);
+
+  // Add functions to fetch categories and product names from database
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('category')
+        .order('category');
+      
+      if (error) throw error;
+      
+      // Extract unique categories
+      const uniqueCategories = [...new Set(data.map(item => item.category))];
+      setCategories(uniqueCategories);
+    } catch (err: any) {
+      console.error('Error fetching categories:', err.message);
+      // Fallback to static categories if database fetch fails
+      setCategories(INVENTORY_CATEGORIES);
+    }
+  };
+
+  const fetchProductNames = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('name, category')
+        .order('name');
+      
+      if (error) throw error;
+      
+      setProductNames(data || []);
+    } catch (err: any) {
+      console.error('Error fetching product names:', err.message);
+      // Don't show error to user, just log it
+    }
+  };
 
   useEffect(() => {
     const fetchInventory = async () => {
@@ -120,6 +172,8 @@ const Inventory = () => {
       }
     };
     fetchInventory();
+    fetchCategories();
+    fetchProductNames();
   }, []);
 
   // Filtering
@@ -176,6 +230,15 @@ const Inventory = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to suggest unit based on category
+  const getSuggestedUnit = (category: string) => {
+    if (category.toLowerCase().includes('flavor') || category.toLowerCase().includes('gelato')) return 'kg';
+    if (category.toLowerCase().includes('milkshake') || category.toLowerCase().includes('juice')) return 'L';
+    if (category.toLowerCase().includes('cone') || category.toLowerCase().includes('sundae')) return 'pcs';
+    if (category.toLowerCase().includes('dairy') || category.toLowerCase().includes('ingredients')) return 'L';
+    return '';
   };
 
   return (
@@ -324,28 +387,43 @@ const Inventory = () => {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">Name *</Label>
-              <Input
-                id="name"
-                value={newItem.name}
-                onChange={e => setNewItem({ ...newItem, name: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="category" className="text-right">Category *</Label>
               <Select
                 value={newItem.category}
-                onValueChange={value => setNewItem({ ...newItem, category: value })}
+                onValueChange={category => {
+                  setNewItem({ 
+                    ...newItem, 
+                    category, 
+                    name: '', // Reset name when category changes
+                    unit: getSuggestedUnit(category) // Auto-suggest unit
+                  });
+                }}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {INVENTORY_CATEGORIES.map((category) => (
+                  {categories.map((category) => (
                     <SelectItem key={category} value={category}>
                       {category}
                     </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right">Name *</Label>
+              <Select
+                value={newItem.name}
+                onValueChange={name => setNewItem({ ...newItem, name })}
+                disabled={!newItem.category} // Disable until category is selected
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder={!newItem.category ? "Select a category first" : "Select a product"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredProductNames.map((product) => (
+                    <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -441,6 +519,8 @@ const Inventory = () => {
                     expiration_date: '',
                     date_created: format(new Date(), 'yyyy-MM-dd'),
                   });
+                  // Reset filtered product names
+                  setFilteredProductNames([]);
                 } catch (err: any) {
                   toast({
                     title: "Error",

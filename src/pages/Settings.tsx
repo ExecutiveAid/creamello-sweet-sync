@@ -36,12 +36,56 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { Pencil, Trash2, Plus, Clock, Calendar } from 'lucide-react';
+import { Pencil, Trash2, Plus, Clock, Calendar, Settings as SettingsIcon, Shield } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { format, parseISO, differenceInMinutes, addDays, startOfWeek, endOfWeek } from 'date-fns';
+import { format, parseISO, differenceInMinutes, addDays, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import Receipt, { ReceiptTemplate, ReceiptOrder } from '@/components/Receipt';
 import { printReceipt } from '@/utils/receiptPrinter';
+// import { formatDate } from '../utils/dates'; // Not used - commented out
+
+// Define StaffPermissions type locally
+type StaffPermissions = {
+  dashboard: boolean;
+  orders: boolean;
+  production: boolean;
+  inventory: boolean;
+  reports: boolean;
+  settings: boolean;
+};
+
+// Helper function to get default permissions based on role
+const getDefaultPermissions = (role: string): StaffPermissions => {
+  switch (role) {
+    case 'admin':
+      return {
+        dashboard: true,
+        orders: true,
+        production: true,
+        inventory: true,
+        reports: true,
+        settings: true
+      };
+    case 'manager':
+      return {
+        dashboard: true,
+        orders: true,
+        production: true,
+        inventory: true,
+        reports: true,
+        settings: false
+      };
+    default: // staff
+      return {
+        dashboard: false,
+        orders: true,
+        production: false,
+        inventory: false,
+        reports: false,
+        settings: false
+      };
+  }
+};
 
 // Type for menu items
 interface MenuItem {
@@ -91,6 +135,18 @@ const Settings = () => {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: '', pin: '', role: 'staff' });
+  
+  // Staff permissions management state
+  const [showPermissionsDialog, setShowPermissionsDialog] = useState(false);
+  const [selectedStaffForPermissions, setSelectedStaffForPermissions] = useState<any>(null);
+  const [tempPermissions, setTempPermissions] = useState<StaffPermissions>({
+    dashboard: false,
+    orders: false,
+    production: false,
+    inventory: false,
+    reports: false,
+    settings: false,
+  });
   
   // Staff attendance tracking
   const [staffAttendance, setStaffAttendance] = useState<StaffAttendance[]>([]);
@@ -148,9 +204,28 @@ const Settings = () => {
     cutType: 'full', // 'full', 'partial', 'none'
   });
 
+  // System statistics state
+  const [systemStats, setSystemStats] = useState({
+    totalOrders: 0,
+    isDbConnected: false
+  });
+
+  // Add branding state variables
+  const [brandingSettings, setBrandingSettings] = useState({
+    customShopName: 'Creamello', // For sidebar display
+    logoUrl: '',
+    primaryColor: '#8B5CF6', // Default purple
+    useCustomLogo: false
+  });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
   useEffect(() => {
     const fetchSettings = async () => {
       const { data, error } = await supabase.from('settings').select('*').limit(1).single();
+      console.log('Fetched settings data:', data);
+      console.log('Current branding_settings:', data?.branding_settings);
+      
       if (data) {
         setSettingsId(data.id);
         setShopName(data.shop_name || '');
@@ -165,6 +240,19 @@ const Settings = () => {
         setTheme(data.theme || 'light');
         setDateFormat(data.date_format || 'MM/DD/YYYY');
         setAutoRefresh(data.auto_refresh !== undefined ? data.auto_refresh : true);
+        
+        // Load branding settings - make sure to use existing values if they exist
+        if (data.branding_settings) {
+          setBrandingSettings(data.branding_settings);
+        } else {
+          // Only use defaults if no branding settings exist
+          setBrandingSettings({
+            customShopName: 'Creamello',
+            logoUrl: '',
+            primaryColor: '#8B5CF6',
+            useCustomLogo: false
+          });
+        }
         
         // Load business operations settings
         setBusinessHours(data.business_hours || { openTime: '11:00', closeTime: '23:00' });
@@ -206,7 +294,7 @@ const Settings = () => {
   useEffect(() => {
     if (isAdmin) {
       const fetchStaff = async () => {
-        const { data } = await supabase.from('staff').select('id, name, role, pin');
+        const { data } = await supabase.from('staff').select('id, name, role, pin, permissions');
         setStaffList(data || []);
       };
       fetchStaff();
@@ -224,92 +312,95 @@ const Settings = () => {
       
       // Fetch staff attendance data
       fetchStaffAttendance();
+      fetchSystemStats();
     }
   }, [isAdmin, selectedWeek]);
   
   // Function to fetch staff attendance data for the selected week
   const fetchStaffAttendance = async () => {
     try {
-      // Calculate the start and end dates for the selected week
-      const weekStart = startOfWeek(parseISO(selectedWeek), { weekStartsOn: 1 });
-      const weekEnd = endOfWeek(parseISO(selectedWeek), { weekStartsOn: 1 });
-      
-      // Format dates for query
-      const startDate = format(weekStart, 'yyyy-MM-dd');
-      const endDate = format(weekEnd, 'yyyy-MM-dd');
-      
-      // Fetch attendance records for the selected week
       const { data, error } = await supabase
         .from('staff_attendance')
-        .select('id, staff_id, login_time, logout_time')
-        .gte('login_time', `${startDate}T00:00:00`)
-        .lte('login_time', `${endDate}T23:59:59`)
+        .select('*, staff(name)')
         .order('login_time', { ascending: false });
         
       if (error) {
         console.error('Error fetching staff attendance:', error);
         return;
       }
+
+      // Format the data with staff names
+      const formattedData = (data || []).map(record => ({
+        ...record,
+        staff_name: record.staff?.name || 'Unknown',
+        total_minutes: record.logout_time 
+          ? differenceInMinutes(parseISO(record.logout_time), parseISO(record.login_time))
+          : null
+      }));
+
+      setStaffAttendance(formattedData);
       
-      // Add staff names to the attendance records
-      const attendanceWithNames = await Promise.all(
-        (data || []).map(async (record) => {
-          const { data: staffData } = await supabase
-            .from('staff')
-            .select('name')
-            .eq('id', record.staff_id)
-            .single();
-            
-          // Calculate total minutes worked if there's a logout time
-          let totalMinutes = null;
-          if (record.logout_time) {
-            totalMinutes = differenceInMinutes(
-              new Date(record.logout_time),
-              new Date(record.login_time)
-            );
-          }
-          
-          return {
-            ...record,
-            staff_name: staffData?.name || 'Unknown',
-            total_minutes: totalMinutes
-          };
-        })
-      );
-      
-      setStaffAttendance(attendanceWithNames);
-      
-      // Calculate daily hours per staff member
-      const hours: Record<string, any> = {};
-      
-      attendanceWithNames.forEach(record => {
-        if (!record.total_minutes) return;
-        
-        const day = format(new Date(record.login_time), 'yyyy-MM-dd');
-        const staffId = record.staff_id;
-        const staffName = record.staff_name;
-        
-        if (!hours[staffId]) {
-          hours[staffId] = { 
-            name: staffName,
-            days: {},
-            totalHours: 0 
-          };
-        }
-        
-        if (!hours[staffId].days[day]) {
-          hours[staffId].days[day] = 0;
-        }
-        
-        // Add hours worked for this record
-        hours[staffId].days[day] += record.total_minutes / 60;
-        hours[staffId].totalHours += record.total_minutes / 60;
-      });
-      
-      setDailyHours(hours);
-      
+      // Calculate daily hours for the selected week
+      calculateDailyHours(formattedData);
     } catch (err) {
-      console.error('Error processing attendance data:', err);
+      console.error('Error in fetchStaffAttendance:', err);
+    }
+  };
+
+  // Function to calculate daily hours for the selected week
+  const calculateDailyHours = (data: StaffAttendance[]) => {
+    const hours: Record<string, any> = {};
+    
+    data.forEach(record => {
+      if (!record.total_minutes) return;
+      
+      const day = format(new Date(record.login_time), 'yyyy-MM-dd');
+      const staffId = record.staff_id;
+      const staffName = record.staff_name;
+      
+      if (!hours[staffId]) {
+        hours[staffId] = { 
+          name: staffName,
+          days: {},
+          totalHours: 0 
+        };
+      }
+      
+      if (!hours[staffId].days[day]) {
+        hours[staffId].days[day] = 0;
+      }
+      
+      // Add hours worked for this record
+      hours[staffId].days[day] += record.total_minutes / 60;
+      hours[staffId].totalHours += record.total_minutes / 60;
+    });
+    
+    setDailyHours(hours);
+  };
+
+  // Function to fetch system statistics
+  const fetchSystemStats = async () => {
+    try {
+      // Test database connection
+      const { error: connectionError } = await supabase.from('settings').select('id').limit(1);
+      const isConnected = !connectionError;
+
+      // Get total orders count
+      const { count: ordersCount, error: ordersError } = await supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true });
+
+      setSystemStats(prev => ({
+        ...prev,
+        totalOrders: ordersCount || 0,
+        isDbConnected: isConnected
+      }));
+    } catch (err) {
+      console.error('Error fetching system stats:', err);
+      setSystemStats(prev => ({
+        ...prev,
+        isDbConnected: false
+      }));
     }
   };
 
@@ -329,26 +420,11 @@ const Settings = () => {
       tax_rate: taxRate,
       receipt_settings: receiptSettings,
       receipt_template: receiptTemplate,
+      branding_settings: brandingSettings,
       ...overrides,
     };
     const { error } = await supabase.from('settings').upsert(upsertData, { onConflict: 'id' });
     return error;
-  };
-
-  const handleSaveProfile = async () => {
-    const error = await saveSettings();
-    if (!error) {
-      toast({
-        title: 'Profile Updated',
-        description: 'Your profile settings have been saved.'
-      });
-    } else {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive'
-      });
-    }
   };
 
   const handleSaveNotifications = async () => {
@@ -368,19 +444,33 @@ const Settings = () => {
   };
 
   const handleSaveSystem = async () => {
-    const error = await saveSettings();
-    if (!error) {
+    // Validate branding settings
+    if (!brandingSettings.customShopName.trim()) {
       toast({
-        title: 'System Settings Updated',
-        description: 'Your system settings have been saved.'
-      });
-    } else {
-      toast({
-        title: 'Error',
-        description: error.message,
+        title: 'Missing Shop Name',
+        description: 'Please enter a shop name for the sidebar.',
         variant: 'destructive'
       });
+      return;
     }
+
+    await saveSettings({
+      theme,
+      date_format: dateFormat,
+      auto_refresh: autoRefresh,
+      shop_name: shopName,
+      email: email,
+      currency: currency,
+      branding_settings: brandingSettings, // Include branding settings
+    });
+    
+    // Dispatch custom event to notify sidebar of changes
+    window.dispatchEvent(new CustomEvent('brandingUpdated'));
+    
+    toast({ 
+      title: 'System Settings Saved', 
+      description: 'All system settings, shop information, and branding have been updated successfully.' 
+    });
   };
 
   const handleSaveBusinessOperations = async () => {
@@ -529,12 +619,16 @@ const Settings = () => {
     // Store the original PIN for display in success message
     const displayPin = newStaff.pin;
     
+    // Get default permissions for the role
+    const defaultPermissions = getDefaultPermissions(newStaff.role);
+    
     // In a production app, you would use a proper password hashing library
     // For now, we'll just store the PIN as-is, but mask it in the UI
     const { error } = await supabase.from('staff').insert([{ 
       name: newStaff.name, 
       pin: newStaff.pin, 
-      role: newStaff.role 
+      role: newStaff.role,
+      permissions: defaultPermissions
     }]);
     
     if (!error) {
@@ -545,10 +639,48 @@ const Settings = () => {
       setShowAddStaff(false);
       setNewStaff({ name: '', pin: '', role: 'staff' });
       // Refresh staff list
-      const { data } = await supabase.from('staff').select('id, name, role, pin');
+      const { data } = await supabase.from('staff').select('id, name, role, pin, permissions');
       setStaffList(data || []);
     } else {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  // Open permissions dialog for a staff member
+  const handleManagePermissions = (staff: any) => {
+    setSelectedStaffForPermissions(staff);
+    // Use existing permissions or default based on role
+    const permissions = staff.permissions || getDefaultPermissions(staff.role);
+    setTempPermissions(permissions);
+    setShowPermissionsDialog(true);
+  };
+
+  // Save permissions for a staff member
+  const handleSavePermissions = async () => {
+    if (!selectedStaffForPermissions) return;
+
+    const { error } = await supabase
+      .from('staff')
+      .update({ permissions: tempPermissions })
+      .eq('id', selectedStaffForPermissions.id);
+
+    if (!error) {
+      toast({
+        title: 'Permissions Updated',
+        description: `${selectedStaffForPermissions.name}'s access permissions have been updated.`
+      });
+      setShowPermissionsDialog(false);
+      setSelectedStaffForPermissions(null);
+
+      // Refresh staff list
+      const { data } = await supabase.from('staff').select('id, name, role, pin, permissions');
+      setStaffList(data || []);
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
     }
   };
   
@@ -635,67 +767,456 @@ const Settings = () => {
     }
   };
 
+  // Logo upload functions
+  const handleLogoUpload = async (file: File) => {
+    if (!file) return;
+    
+    setUploadingLogo(true);
+    try {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Please select an image file');
+      }
+      
+      // Validate file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        throw new Error('File size must be less than 2MB');
+      }
+      
+      // Create unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `logo-${Date.now()}.${fileExt}`;
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('branding')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+      
+      if (uploadError) throw uploadError;
+      
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('branding')
+        .getPublicUrl(fileName);
+      
+      // Update branding settings
+      setBrandingSettings(prev => ({
+        ...prev,
+        logoUrl: publicUrl,
+        useCustomLogo: true  // Automatically enable when logo is uploaded
+      }));
+      
+      // Save settings immediately to persist the logo
+      const newBrandingSettings = {
+        customShopName: brandingSettings.customShopName,  // Preserve shop name
+        primaryColor: brandingSettings.primaryColor,      // Preserve color
+        logoUrl: publicUrl,
+        useCustomLogo: true
+      };
+      
+      const error = await saveSettings({
+        branding_settings: newBrandingSettings
+      });
+      
+      if (!error) {
+        // Dispatch event to update sidebar immediately
+        window.dispatchEvent(new CustomEvent('brandingUpdated'));
+        
+        toast({
+          title: 'Logo Uploaded',
+          description: 'Your logo has been uploaded and applied successfully.'
+        });
+      } else {
+        toast({
+          title: 'Logo Upload Failed',
+          description: 'Logo uploaded but failed to save settings.',
+          variant: 'destructive'
+        });
+      }
+      
+    } catch (error: any) {
+      toast({
+        title: 'Upload Failed',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    try {
+      // If there's an existing logo, try to delete it from storage
+      if (brandingSettings.logoUrl) {
+        const fileName = brandingSettings.logoUrl.split('/').pop();
+        if (fileName) {
+          await supabase.storage.from('branding').remove([fileName]);
+        }
+      }
+      
+      setBrandingSettings(prev => ({
+        ...prev,
+        logoUrl: '',
+        useCustomLogo: false
+      }));
+      
+      // Save settings immediately
+      const newBrandingSettings = {
+        customShopName: brandingSettings.customShopName,  // Preserve shop name
+        primaryColor: brandingSettings.primaryColor,      // Preserve color
+        logoUrl: '',
+        useCustomLogo: false
+      };
+      
+      const error = await saveSettings({
+        branding_settings: newBrandingSettings
+      });
+      
+      if (!error) {
+        // Dispatch event to update sidebar immediately
+        window.dispatchEvent(new CustomEvent('brandingUpdated'));
+        
+        toast({
+          title: 'Logo Removed',
+          description: 'Your logo has been removed successfully.'
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to save settings after removing logo.',
+          variant: 'destructive'
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: 'Failed to remove logo.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSaveBranding = async () => {
+    // Validate branding settings
+    if (!brandingSettings.customShopName.trim()) {
+      toast({
+        title: 'Missing Shop Name',
+        description: 'Please enter a shop name for the sidebar.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const error = await saveSettings();
+    if (!error) {
+      // Dispatch custom event to notify sidebar of changes
+      window.dispatchEvent(new CustomEvent('brandingUpdated'));
+      
+      toast({
+        title: 'Branding Updated',
+        description: 'Your branding settings have been saved successfully.'
+      });
+    } else {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
       </div>
 
-      <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="grid w-full md:w-[900px] grid-cols-7">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+      <Tabs defaultValue="system" className="w-full">
+        <TabsList className="grid w-full md:w-[900px] grid-cols-6">
           <TabsTrigger value="system">System</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
           {isAdmin && <TabsTrigger value="business">Business</TabsTrigger>}
           {isAdmin && <TabsTrigger value="receipts">Receipts</TabsTrigger>}
           {isAdmin && <TabsTrigger value="staff">Staff</TabsTrigger>}
           {isAdmin && <TabsTrigger value="menu">Menu Items</TabsTrigger>}
         </TabsList>
         
-        <TabsContent value="profile">
+        <TabsContent value="system">
           <Card>
             <CardHeader>
-              <CardTitle>Profile Settings</CardTitle>
+              <CardTitle>System Settings</CardTitle>
               <CardDescription>
-                Update your shop information and preferences.
+                Configure application behavior, shop information, and system preferences.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="shop-name">Shop Name</Label>
-                <Input
-                  id="shop-name"
-                  value={shopName}
-                  onChange={(e) => setShopName(e.target.value)}
-                />
+            <CardContent className="space-y-6">
+              
+              {/* Shop Information Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Shop Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="shop-name">Official Business Name</Label>
+                    <Input
+                      id="shop-name"
+                      value={shopName}
+                      onChange={(e) => setShopName(e.target.value)}
+                      placeholder="Creamello Ice Cream Shop"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      Used on receipts, reports, and official documents
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Contact Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currency">Currency</Label>
+                    <Select value={currency} onValueChange={setCurrency}>
+                      <SelectTrigger id="currency">
+                        <SelectValue placeholder="Select a currency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="GHS">GHS (₵)</SelectItem>
+                        <SelectItem value="USD">USD ($)</SelectItem>
+                        <SelectItem value="EUR">EUR (€)</SelectItem>
+                        <SelectItem value="GBP">GBP (£)</SelectItem>
+                        <SelectItem value="CAD">CAD (C$)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Contact Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+              
+              {/* Branding Settings Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Branding & Appearance</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="sidebar-shop-name">App Display Name</Label>
+                      <Input
+                        id="sidebar-shop-name"
+                        value={brandingSettings.customShopName}
+                        onChange={(e) => setBrandingSettings({ ...brandingSettings, customShopName: e.target.value })}
+                        placeholder="Creamello"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Short name shown in the sidebar and app interface
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="primary-color">Primary Brand Color</Label>
+                      <div className="flex items-center space-x-2">
+                        <div 
+                          className="h-8 w-8 rounded-lg border border-input" 
+                          style={{ backgroundColor: brandingSettings.primaryColor }} 
+                        />
+                        <Input
+                          id="primary-color"
+                          type="color"
+                          value={brandingSettings.primaryColor}
+                          onChange={(e) => setBrandingSettings({ ...brandingSettings, primaryColor: e.target.value })}
+                          className="w-20 h-8 p-1 border rounded"
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {brandingSettings.primaryColor}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Used for sidebar icon background and accent colors
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Shop Logo</Label>
+                      <div className="flex items-center space-x-4">
+                        {brandingSettings.useCustomLogo && brandingSettings.logoUrl ? (
+                          <img
+                            src={brandingSettings.logoUrl}
+                            alt="Shop Logo"
+                            className="h-16 w-16 object-contain rounded-lg border border-input"
+                          />
+                        ) : (
+                          <div className="h-16 w-16 rounded-lg bg-muted flex items-center justify-center text-muted-foreground border border-input">
+                            <span className="text-xs">No Logo</span>
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <input
+                            type="file"
+                            id="logo-upload"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleLogoUpload(file);
+                              }
+                            }}
+                          />
+                          <div className="flex space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => document.getElementById('logo-upload')?.click()}
+                              disabled={uploadingLogo}
+                            >
+                              {uploadingLogo ? 'Uploading...' : brandingSettings.logoUrl ? 'Change' : 'Upload'}
+                            </Button>
+                            {brandingSettings.logoUrl && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleRemoveLogo}
+                              >
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id="use-custom-logo"
+                              checked={brandingSettings.useCustomLogo}
+                              onCheckedChange={(checked) => setBrandingSettings({ ...brandingSettings, useCustomLogo: checked })}
+                            />
+                            <Label htmlFor="use-custom-logo" className="text-sm">Use custom logo</Label>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Upload a logo to replace the default icon in the sidebar (max 2MB)
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="currency">Currency</Label>
-                <Select value={currency} onValueChange={setCurrency}>
-                  <SelectTrigger id="currency">
-                    <SelectValue placeholder="Select a currency" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="GHS">GHS (₵)</SelectItem>
-                    <SelectItem value="USD">USD ($)</SelectItem>
-                    <SelectItem value="EUR">EUR (€)</SelectItem>
-                    <SelectItem value="GBP">GBP (£)</SelectItem>
-                    <SelectItem value="CAD">CAD (C$)</SelectItem>
-                  </SelectContent>
-                </Select>
+              
+              {/* Application Preferences Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Application Preferences</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="theme">Theme</Label>
+                    <Select value={theme} onValueChange={v => setTheme(v)}>
+                      <SelectTrigger id="theme">
+                        <SelectValue placeholder="Select a theme" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="light">Light</SelectItem>
+                        <SelectItem value="dark">Dark</SelectItem>
+                        <SelectItem value="system">System</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="dateFormat">Date Format</Label>
+                    <Select value={dateFormat} onValueChange={v => setDateFormat(v)}>
+                      <SelectTrigger id="dateFormat">
+                        <SelectValue placeholder="Select date format" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+                        <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+                        <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Auto Refresh Dashboard</p>
+                    <p className="text-sm text-muted-foreground">
+                      Automatically refresh dashboard data every 5 minutes
+                    </p>
+                  </div>
+                  <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+                </div>
               </div>
+              
+              {/* System Security Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Security & Access</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Enable PIN Security</p>
+                      <p className="text-sm text-muted-foreground">
+                        Require PIN authentication for sensitive operations
+                      </p>
+                    </div>
+                    <Switch defaultChecked={true} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Auto-Lock After Inactivity</p>
+                      <p className="text-sm text-muted-foreground">
+                        Automatically lock the application after 30 minutes of inactivity
+                      </p>
+                    </div>
+                    <Switch defaultChecked={false} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Enable Audit Logging</p>
+                      <p className="text-sm text-muted-foreground">
+                        Track all user actions for security and compliance
+                      </p>
+                    </div>
+                    <Switch defaultChecked={true} />
+                  </div>
+                </div>
+              </div>
+              
+              {/* System Information Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">System Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className="bg-muted p-3 rounded-lg">
+                      <div className="text-sm font-medium">Application Version</div>
+                      <div className="text-sm text-muted-foreground">v1.0.0</div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="bg-muted p-3 rounded-lg">
+                      <div className="text-sm font-medium">Database Status</div>
+                      <div className={`text-sm ${systemStats.isDbConnected ? 'text-green-600' : 'text-red-600'}`}>
+                        {systemStats.isDbConnected ? 'Connected' : 'Disconnected'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="bg-muted p-3 rounded-lg">
+                      <div className="text-sm font-medium">Total Orders</div>
+                      <div className="text-sm text-muted-foreground">{systemStats.totalOrders.toLocaleString()}</div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="bg-muted p-3 rounded-lg">
+                      <div className="text-sm font-medium">Active Staff</div>
+                      <div className="text-sm text-muted-foreground">{staffList.length} members</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveProfile}>Save Changes</Button>
+              <Button onClick={handleSaveSystem}>Save Settings</Button>
             </CardFooter>
           </Card>
         </TabsContent>
@@ -768,57 +1289,6 @@ const Settings = () => {
             </CardContent>
             <CardFooter>
               <Button onClick={handleSaveNotifications}>Save Preferences</Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="system">
-          <Card>
-            <CardHeader>
-              <CardTitle>System Settings</CardTitle>
-              <CardDescription>
-                Configure application behavior and system preferences.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="theme">Theme</Label>
-                <Select value={theme} onValueChange={v => setTheme(v)}>
-                  <SelectTrigger id="theme">
-                    <SelectValue placeholder="Select a theme" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="light">Light</SelectItem>
-                    <SelectItem value="dark">Dark</SelectItem>
-                    <SelectItem value="system">System</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="dateFormat">Date Format</Label>
-                <Select value={dateFormat} onValueChange={v => setDateFormat(v)}>
-                  <SelectTrigger id="dateFormat">
-                    <SelectValue placeholder="Select date format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                    <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                    <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Auto Refresh Dashboard</p>
-                  <p className="text-sm text-muted-foreground">
-                    Automatically refresh dashboard data every 5 minutes
-                  </p>
-                </div>
-                <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={handleSaveSystem}>Save Settings</Button>
             </CardFooter>
           </Card>
         </TabsContent>
@@ -1277,16 +1747,43 @@ const Settings = () => {
                         <th className="px-4 py-2 text-left font-medium">Name</th>
                         <th className="px-4 py-2 text-left font-medium">Role</th>
                         <th className="px-4 py-2 text-left font-medium">PIN</th>
+                        <th className="px-4 py-2 text-left font-medium">Access Permissions</th>
+                        <th className="px-4 py-2 text-right font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {staffList.map((s) => (
-                        <tr key={s.id} className="even:bg-muted/50">
-                          <td className="px-4 py-2">{s.name}</td>
-                          <td className="px-4 py-2 capitalize">{s.role}</td>
-                          <td className="px-4 py-2 font-mono tracking-wider">{'*'.repeat(s.pin.length)}</td>
-                        </tr>
-                      ))}
+                      {staffList.map((s) => {
+                        // Use default permissions based on role since permissions column doesn't exist
+                        const permissions = getDefaultPermissions(s.role);
+                        const activePermissions = Object.entries(permissions)
+                          .filter(([_, value]) => value)
+                          .map(([key, _]) => key)
+                          .join(', ');
+                        
+                        return (
+                          <tr key={s.id} className="even:bg-muted/50">
+                            <td className="px-4 py-2">{s.name}</td>
+                            <td className="px-4 py-2 capitalize">{s.role}</td>
+                            <td className="px-4 py-2 font-mono tracking-wider">{'*'.repeat(s.pin.length)}</td>
+                            <td className="px-4 py-2 max-w-xs">
+                              <div className="text-sm text-muted-foreground truncate">
+                                {activePermissions || 'No permissions'}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2 text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleManagePermissions(s)}
+                                className="flex items-center gap-1"
+                              >
+                                <Shield className="h-4 w-4" />
+                                Permissions
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1435,6 +1932,87 @@ const Settings = () => {
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowAddStaff(false)}>Cancel</Button>
                   <Button onClick={handleAddStaff}>Add Staff</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Staff Permissions Management Dialog */}
+            <Dialog open={showPermissionsDialog} onOpenChange={setShowPermissionsDialog}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5" />
+                    Manage Access Permissions
+                  </DialogTitle>
+                  <DialogDescription>
+                    Configure which navigation tabs {selectedStaffForPermissions?.name} can access.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-4">
+                    {Object.entries(tempPermissions).map(([permission, enabled]) => {
+                      const permissionLabels: Record<string, { label: string; description: string }> = {
+                        dashboard: { 
+                          label: 'Dashboard', 
+                          description: 'View sales dashboard and analytics' 
+                        },
+                        orders: { 
+                          label: 'Orders', 
+                          description: 'Manage customer orders and POS' 
+                        },
+                        production: { 
+                          label: 'Production', 
+                          description: 'Manage production batches and schedules' 
+                        },
+                        inventory: { 
+                          label: 'Inventory', 
+                          description: 'Manage stock and inventory items' 
+                        },
+                        reports: { 
+                          label: 'Reports', 
+                          description: 'View detailed reports and analytics' 
+                        },
+                        settings: { 
+                          label: 'Settings', 
+                          description: 'Access system settings and configuration' 
+                        },
+                      };
+
+                      const { label, description } = permissionLabels[permission];
+
+                      return (
+                        <div key={permission} className="flex items-center justify-between space-x-2">
+                          <div className="flex-1">
+                            <div className="font-medium">{label}</div>
+                            <div className="text-sm text-muted-foreground">{description}</div>
+                          </div>
+                          <Switch
+                            checked={enabled}
+                            onCheckedChange={(checked) =>
+                              setTempPermissions(prev => ({
+                                ...prev,
+                                [permission]: checked
+                              }))
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  <div className="pt-4 border-t">
+                    <div className="text-xs text-muted-foreground">
+                      <strong>Note:</strong> Changes will take effect the next time the user logs in.
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowPermissionsDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSavePermissions}>
+                    Save Permissions
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

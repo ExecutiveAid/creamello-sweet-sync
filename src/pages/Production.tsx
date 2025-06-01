@@ -88,9 +88,22 @@ const Production = () => {
     notes: '',
   });
   
+  // Add state to track filtered product names based on selected category
+  const [filteredProductNames, setFilteredProductNames] = useState<{name: string; category: string}[]>([]);
+
   // Use a ref to track which batches have already triggered low inventory warnings
   // This prevents duplicate warnings on every refresh/rerender
   const lowInventoryAlertsRef = useRef<LowInventoryAlerts>({});
+
+  // Filter product names when category changes
+  useEffect(() => {
+    if (newBatch.category) {
+      const filtered = productNames.filter(product => product.category === newBatch.category);
+      setFilteredProductNames(filtered);
+    } else {
+      setFilteredProductNames([]);
+    }
+  }, [newBatch.category, productNames]);
 
   // Check for low inventory and show warnings
   const checkLowInventory = (batchData: ProductionBatch[]) => {
@@ -609,38 +622,6 @@ const Production = () => {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="product_name" className="text-right">
-                Product Name *
-              </Label>
-              <Select
-                value={newBatch.product_name}
-                onValueChange={(name) => {
-                  // Find the selected product to get its category
-                  const selectedProduct = productNames.find(p => p.name === name);
-                  if (selectedProduct) {
-                    const category = selectedProduct.category;
-                    setNewBatch({
-                      ...newBatch,
-                      product_name: name,
-                      category: category,
-                      unit: getSuggestedUnit(category)
-                    });
-                  } else {
-                    setNewBatch({ ...newBatch, product_name: name });
-                  }
-                }}
-              >
-                <SelectTrigger id="product_name" className="col-span-3">
-                  <SelectValue placeholder="Select a product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {productNames.map((product) => (
-                    <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="category" className="text-right">
                 Category *
               </Label>
@@ -650,6 +631,7 @@ const Production = () => {
                   setNewBatch({ 
                     ...newBatch, 
                     category, 
+                    product_name: '', // Reset product name when category changes
                     unit: getSuggestedUnit(category)
                   });
                 }}
@@ -660,6 +642,27 @@ const Production = () => {
                 <SelectContent>
                   {categories.map((category) => (
                     <SelectItem key={category} value={category}>{category}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="product_name" className="text-right">
+                Product Name *
+              </Label>
+              <Select
+                value={newBatch.product_name}
+                onValueChange={(name) => {
+                  setNewBatch({ ...newBatch, product_name: name });
+                }}
+                disabled={!newBatch.category} // Disable until category is selected
+              >
+                <SelectTrigger id="product_name" className="col-span-3">
+                  <SelectValue placeholder={!newBatch.category ? "Select a category first" : "Select a product"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredProductNames.map((product) => (
+                    <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -783,6 +786,8 @@ const Production = () => {
                     production_date: format(new Date(), 'yyyy-MM-dd'),
                     notes: '',
                   });
+                  // Reset filtered product names
+                  setFilteredProductNames([]);
                 } catch (err: any) {
                   toast({
                     title: "Error",
