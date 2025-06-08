@@ -25,6 +25,8 @@ import { toast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import InventoryMovementService from '@/services/inventoryMovementService';
+import { useAuth } from '@/context/AuthContext';
 
 // Type definition for production batch (matching Supabase schema)
 interface ProductionBatch {
@@ -38,6 +40,30 @@ interface ProductionBatch {
   notes?: string;
   available_quantity?: number;
   last_replenished_at?: string;
+  total_cost?: number; // Total cost of ingredients used
+  cost_per_unit?: number; // Cost per unit produced
+}
+
+// Interface for ingredient selection in production
+interface IngredientUsage {
+  inventory_id: string;
+  name: string;
+  quantity_needed: number;
+  available_quantity: number;
+  unit: string;
+  cost_per_unit: number;
+  total_cost: number;
+}
+
+// Interface for inventory items (for ingredient selection)
+interface InventoryItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  available_quantity: number;
+  unit: string;
+  cost_per_unit: number;
 }
 
 // Interface to track which batches have already triggered low inventory warnings
@@ -67,6 +93,13 @@ const Production = () => {
   const [categories, setCategories] = useState<string[]>([]);
   // Add state for product names
   const [productNames, setProductNames] = useState<{name: string; category: string}[]>([]);
+  
+  // New state for inventory integration
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [selectedIngredients, setSelectedIngredients] = useState<IngredientUsage[]>([]);
+  const [showIngredientSelection, setShowIngredientSelection] = useState(false);
+  
+  const { staff } = useAuth();
   
   // Replenishment state
   const [replenishDialogOpen, setReplenishDialogOpen] = useState(false);
@@ -214,10 +247,28 @@ const Production = () => {
     }
   };
 
+  // Fetch inventory items for ingredient selection
+  const fetchInventoryItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('inventory')
+        .select('id, sku, name, category, available_quantity, unit, cost_per_unit')
+        .eq('is_active', true)
+        .gt('available_quantity', 0)
+        .order('name');
+      
+      if (error) throw error;
+      setInventoryItems(data || []);
+    } catch (err: any) {
+      console.error('Error fetching inventory items:', err.message);
+    }
+  };
+
   useEffect(() => {
     fetchBatches();
     fetchCategories();
     fetchProductNames();
+    fetchInventoryItems();
 
     // Set up real-time subscription to production_batches table
     const subscription = supabase
@@ -322,6 +373,52 @@ const Production = () => {
     return '';
   };
 
+  // Add ingredient to production batch
+  const addIngredient = (inventoryItem: InventoryItem) => {
+    const existing = selectedIngredients.find(ing => ing.inventory_id === inventoryItem.id);
+    if (existing) {
+      toast({
+        title: "Ingredient Already Added",
+        description: `${inventoryItem.name} is already in the ingredient list.`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const newIngredient: IngredientUsage = {
+      inventory_id: inventoryItem.id,
+      name: inventoryItem.name,
+      quantity_needed: 0,
+      available_quantity: inventoryItem.available_quantity,
+      unit: inventoryItem.unit,
+      cost_per_unit: inventoryItem.cost_per_unit,
+      total_cost: 0
+    };
+
+    setSelectedIngredients([...selectedIngredients, newIngredient]);
+  };
+
+  // Update ingredient quantity
+  const updateIngredientQuantity = (inventoryId: string, quantity: number) => {
+    setSelectedIngredients(prev => 
+      prev.map(ing => 
+        ing.inventory_id === inventoryId 
+          ? { ...ing, quantity_needed: quantity, total_cost: quantity * ing.cost_per_unit }
+          : ing
+      )
+    );
+  };
+
+  // Remove ingredient
+  const removeIngredient = (inventoryId: string) => {
+    setSelectedIngredients(prev => prev.filter(ing => ing.inventory_id !== inventoryId));
+  };
+
+  // Calculate total production cost
+  const calculateTotalCost = () => {
+    return selectedIngredients.reduce((total, ing) => total + ing.total_cost, 0);
+  };
+
   const handleReplenish = (batch: ProductionBatch) => {
     // Prepare replenishment data
     setReplenishmentData({
@@ -390,6 +487,184 @@ const Production = () => {
       toast({
         title: "Error",
         description: err.message || "Failed to replenish stock.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Create production batch with inventory integration
+  const createProductionBatch = async () => {
+    // Validate required fields
+    if (!newBatch.product_name || !newBatch.category || !newBatch.production_date || !newBatch.quantity || !newBatch.unit) {
+      toast({
+        title: "Missing Fields",
+        description: "Please fill in all required fields.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // For completed production, check if finished product exists in inventory
+    if (newBatch.status === 'completed') {
+      const { data: inventoryCheck } = await supabase
+        .from('inventory')
+        .select('id, name, category')
+        .eq('name', newBatch.product_name)
+        .eq('category', newBatch.category)
+        .single();
+
+      if (!inventoryCheck) {
+        toast({
+          title: "Inventory Setup Required",
+          description: `${newBatch.product_name} doesn't exist in inventory yet. Please add it to inventory first before completing production.`,
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    // Validate ingredients for completed status
+    if (newBatch.status === 'completed' && selectedIngredients.length === 0) {
+      toast({
+        title: "No Ingredients Selected",
+        description: "Please add ingredients for completed production or set status to 'Planned'.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Check ingredient availability for any status that uses ingredients
+    if (selectedIngredients.length > 0) {
+      for (const ingredient of selectedIngredients) {
+        if (ingredient.quantity_needed > ingredient.available_quantity) {
+          toast({
+            title: "Insufficient Inventory",
+            description: `Not enough ${ingredient.name} in stock. Available: ${ingredient.available_quantity} ${ingredient.unit}, Needed: ${ingredient.quantity_needed} ${ingredient.unit}`,
+            variant: "destructive"
+          });
+          return;
+        }
+      }
+    }
+
+    setLoading(true);
+    try {
+      const totalCost = calculateTotalCost();
+      const costPerUnit = newBatch.quantity > 0 ? totalCost / newBatch.quantity : 0;
+
+      // Create production batch
+      const { data: batchData, error: batchError } = await supabase
+        .from('production_batches')
+        .insert([{
+          ...newBatch,
+          available_quantity: newBatch.status === 'completed' ? newBatch.quantity : 0,
+          total_cost: totalCost,
+          cost_per_unit: costPerUnit
+        }])
+        .select()
+        .single();
+
+      if (batchError) throw batchError;
+
+      // Consume ingredients from inventory for completed production
+      if (newBatch.status === 'completed' && selectedIngredients.length > 0) {
+        for (const ingredient of selectedIngredients) {
+          if (ingredient.quantity_needed > 0) {
+            const result = await InventoryMovementService.consumeStock({
+              inventory_id: ingredient.inventory_id,
+              quantity: ingredient.quantity_needed,
+              movement_type: 'PRODUCTION',
+              reference_type: 'PRODUCTION',
+              reference_id: batchData.id,
+              notes: `Used in production of ${newBatch.product_name}`,
+              created_by: staff?.name || 'unknown'
+            });
+
+            if (!result.success) {
+              throw new Error(`Failed to consume ${ingredient.name}: ${result.error}`);
+            }
+          }
+        }
+      }
+
+      // Add finished product to inventory if completed
+      if (newBatch.status === 'completed') {
+        // Get the inventory item and menu item for pricing
+        const { data: inventoryItem } = await supabase
+          .from('inventory')
+          .select('id')
+          .eq('name', newBatch.product_name)
+          .eq('category', newBatch.category)
+          .single();
+
+        const { data: menuItem } = await supabase
+          .from('menu_items')
+          .select('price')
+          .eq('name', newBatch.product_name)
+          .eq('category', newBatch.category)
+          .single();
+
+        if (inventoryItem) {
+          // Add finished goods to inventory
+          const result = await InventoryMovementService.replenishStock({
+            inventory_id: inventoryItem.id,
+            quantity: newBatch.quantity,
+            unit_cost: costPerUnit, // Production cost as cost_per_unit
+            reference_number: `PROD-${batchData.id}`,
+            notes: `Production batch completed: ${newBatch.product_name}`,
+            created_by: staff?.name || 'unknown'
+          });
+
+          if (!result.success) {
+            throw new Error(`Failed to add finished product to inventory: ${result.error}`);
+          }
+
+          // Update inventory item pricing if we have menu item data
+          if (menuItem) {
+            await supabase
+              .from('inventory')
+              .update({
+                cost_per_unit: costPerUnit, // Production cost
+                price_per_unit: menuItem.price // Menu price
+              })
+              .eq('id', inventoryItem.id);
+          }
+        }
+      }
+
+      toast({
+        title: "Production Batch Created",
+        description: `${newBatch.product_name} batch has been created successfully.${
+          newBatch.status === 'completed' 
+            ? ' Ingredients consumed and finished product added to inventory with proper cost tracking.' 
+            : ''
+        }`
+      });
+
+      setDialogOpen(false);
+      setShowIngredientSelection(false);
+      setSelectedIngredients([]);
+      fetchBatches();
+      fetchInventoryItems(); // Refresh inventory data
+      
+      // Reset form
+      setNewBatch({
+        product_name: '',
+        category: '',
+        quantity: 0,
+        unit: '',
+        status: 'planned',
+        production_date: format(new Date(), 'yyyy-MM-dd'),
+        notes: '',
+      });
+      setFilteredProductNames([]);
+
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to create production batch.",
         variant: "destructive"
       });
     } finally {
@@ -567,6 +842,24 @@ const Production = () => {
             accessorKey: "status"
           },
           {
+            header: "Cost",
+            cell: (row: ProductionBatch) => (
+              <div className="text-center">
+                {row.total_cost ? (
+                  <div>
+                    <div className="font-medium">GHS{row.total_cost.toFixed(2)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      GHS{(row.cost_per_unit || 0).toFixed(2)}/{row.unit}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground text-sm">No cost data</span>
+                )}
+              </div>
+            ),
+            accessorKey: "total_cost"
+          },
+          {
             header: "Actions",
             cell: (row: ProductionBatch) => {
               // If the batch is already completed, don't allow status changes
@@ -610,197 +903,240 @@ const Production = () => {
         ]}
         title="Production Batches"
         searchable={true}
+        maxHeight="650px"
         onSearch={setSearchQuery}
       />
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Production Batch</DialogTitle>
             <DialogDescription>
-              Schedule a new production batch for gelato, milkshake, juice, or cones.
+              Create a production batch with inventory integration for cost tracking and material consumption.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="category" className="text-right">
-                Category *
-              </Label>
-              <Select
-                value={newBatch.category}
-                onValueChange={(category) => {
-                  setNewBatch({ 
-                    ...newBatch, 
-                    category, 
-                    product_name: '', // Reset product name when category changes
-                    unit: getSuggestedUnit(category)
-                  });
-                }}
-              >
-                <SelectTrigger id="category" className="col-span-3">
-                  <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>{category}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          
+          <div className="space-y-6 py-4">
+            {/* Basic Information */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-900 border-b pb-2">Basic Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="category">Category *</Label>
+                  <Select
+                    value={newBatch.category}
+                    onValueChange={(category) => {
+                      setNewBatch({ 
+                        ...newBatch, 
+                        category, 
+                        product_name: '',
+                        unit: getSuggestedUnit(category)
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="product_name">Product Name *</Label>
+                  <Select
+                    value={newBatch.product_name}
+                    onValueChange={(name) => setNewBatch({ ...newBatch, product_name: name })}
+                    disabled={!newBatch.category}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={!newBatch.category ? "Select a category first" : "Select a product"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredProductNames.map((product) => (
+                        <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="quantity">Quantity *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={newBatch.quantity || ''}
+                    onChange={(e) => setNewBatch({ ...newBatch, quantity: parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="unit">Unit *</Label>
+                  <Select
+                    value={newBatch.unit}
+                    onValueChange={(unit) => setNewBatch({ ...newBatch, unit })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                      <SelectItem value="L">Liters (L)</SelectItem>
+                      <SelectItem value="pcs">Pieces (pcs)</SelectItem>
+                      <SelectItem value="g">Grams (g)</SelectItem>
+                      <SelectItem value="ml">Milliliters (ml)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="production_date">Production Date *</Label>
+                  <Input
+                    type="date"
+                    value={newBatch.production_date}
+                    onChange={(e) => setNewBatch({ ...newBatch, production_date: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={newBatch.status}
+                    onValueChange={(value) => setNewBatch({ ...newBatch, status: value as any })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="planned">Planned</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea
+                  value={newBatch.notes}
+                  onChange={(e) => setNewBatch({ ...newBatch, notes: e.target.value })}
+                  rows={2}
+                  placeholder="Optional production notes..."
+                />
+              </div>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="product_name" className="text-right">
-                Product Name *
-              </Label>
-              <Select
-                value={newBatch.product_name}
-                onValueChange={(name) => {
-                  setNewBatch({ ...newBatch, product_name: name });
-                }}
-                disabled={!newBatch.category} // Disable until category is selected
-              >
-                <SelectTrigger id="product_name" className="col-span-3">
-                  <SelectValue placeholder={!newBatch.category ? "Select a category first" : "Select a product"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {filteredProductNames.map((product) => (
-                    <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="production_date" className="text-right">
-                Date *
-              </Label>
-              <Input
-                id="production_date"
-                type="date"
-                value={newBatch.production_date}
-                onChange={(e) => setNewBatch({ ...newBatch, production_date: e.target.value })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="quantity" className="text-right">
-                Quantity *
-              </Label>
-              <Input
-                id="quantity"
-                type="number"
-                value={newBatch.quantity}
-                onChange={(e) => setNewBatch({ ...newBatch, quantity: parseFloat(e.target.value) })}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="unit" className="text-right">
-                Unit *
-              </Label>
-              <Select
-                value={newBatch.unit}
-                onValueChange={(unit) => setNewBatch({ ...newBatch, unit })}
-              >
-                <SelectTrigger id="unit" className="col-span-3">
-                  <SelectValue placeholder="Select a unit" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                  <SelectItem value="L">Liters (L)</SelectItem>
-                  <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                  <SelectItem value="g">Grams (g)</SelectItem>
-                  <SelectItem value="ml">Milliliters (ml)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="status" className="text-right">
-                Status
-              </Label>
-              <Select
-                value={newBatch.status}
-                onValueChange={(value) => setNewBatch({ ...newBatch, status: value })}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="planned">Planned</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="notes" className="text-right">
-                Notes
-              </Label>
-              <Textarea
-                id="notes"
-                value={newBatch.notes}
-                onChange={(e) => setNewBatch({ ...newBatch, notes: e.target.value })}
-                className="col-span-3"
-                rows={3}
-              />
+
+            {/* Ingredient Selection */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 border-b pb-2">Ingredients & Materials</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowIngredientSelection(!showIngredientSelection)}
+                >
+                  {showIngredientSelection ? 'Hide' : 'Add'} Ingredients
+                </Button>
+              </div>
+
+                {showIngredientSelection && (
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-4">
+                    <h4 className="font-medium">Available Inventory Items</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-60 overflow-y-auto">
+                      {inventoryItems
+                        .filter(item => !selectedIngredients.find(ing => ing.inventory_id === item.id))
+                        .map((item) => (
+                        <div key={item.id} className="bg-white p-3 rounded border">
+                          <div className="text-sm font-medium">{item.name}</div>
+                          <div className="text-xs text-gray-500">{item.category}</div>
+                          <div className="text-xs">Available: {item.available_quantity} {item.unit}</div>
+                          <div className="text-xs">Cost: GHS{item.cost_per_unit}/{item.unit}</div>
+                          <Button 
+                            size="sm" 
+                            className="w-full mt-2"
+                            onClick={() => addIngredient(item)}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selected Ingredients */}
+                {selectedIngredients.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="font-medium">Selected Ingredients</h4>
+                    {selectedIngredients.map((ingredient) => (
+                      <div key={ingredient.inventory_id} className="bg-blue-50 p-3 rounded border">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="font-medium">{ingredient.name}</div>
+                            <div className="text-sm text-gray-600">
+                              Available: {ingredient.available_quantity} {ingredient.unit} | 
+                              Cost: GHS{ingredient.cost_per_unit}/{ingredient.unit}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => removeIngredient(ingredient.inventory_id)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <Label>Quantity needed:</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={ingredient.quantity_needed || ''}
+                            onChange={(e) => updateIngredientQuantity(ingredient.inventory_id, parseFloat(e.target.value) || 0)}
+                            className="w-24"
+                          />
+                          <span className="text-sm">{ingredient.unit}</span>
+                          <span className="text-sm text-green-600 ml-auto">
+                            Cost: GHS{ingredient.total_cost.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-green-800">Total Production Cost:</span>
+                        <span className="text-lg font-bold text-green-600">
+                          GHS{calculateTotalCost().toFixed(2)}
+                        </span>
+                      </div>
+                      {newBatch.quantity > 0 && (
+                        <div className="text-sm text-green-600 mt-1">
+                          Cost per unit: GHS{(calculateTotalCost() / newBatch.quantity).toFixed(2)} per {newBatch.unit}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+
+          <DialogFooter className="flex gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => {
+              setDialogOpen(false);
+              setShowIngredientSelection(false);
+              setSelectedIngredients([]);
+            }}>
+              Cancel
+            </Button>
             <Button
-              onClick={async () => {
-                // Validate required fields
-                if (
-                  !newBatch.product_name ||
-                  !newBatch.category ||
-                  !newBatch.production_date ||
-                  !newBatch.quantity ||
-                  !newBatch.unit
-                ) {
-                  toast({
-                    title: "Missing Fields",
-                    description: "Please fill in all required fields.",
-                    variant: "destructive"
-                  });
-                  return;
-                }
-                setLoading(true);
-                try {
-                  const { error } = await supabase
-                    .from('production_batches')
-                    .insert([{
-                      ...newBatch,
-                      available_quantity: newBatch.quantity // Set available_quantity equal to quantity initially
-                    }]);
-                  if (error) throw error;
-                  toast({
-                    title: "Production Batch Added",
-                    description: `${newBatch.product_name} batch has been added to production schedule.`
-                  });
-                  setDialogOpen(false);
-                  // Refresh the list using our common fetchBatches function
-                  fetchBatches();
-                  // Reset form
-                  setNewBatch({
-                    product_name: '',
-                    category: '',
-                    quantity: 0,
-                    unit: '',
-                    status: 'planned',
-                    production_date: format(new Date(), 'yyyy-MM-dd'),
-                    notes: '',
-                  });
-                  // Reset filtered product names
-                  setFilteredProductNames([]);
-                } catch (err: any) {
-                  toast({
-                    title: "Error",
-                    description: err.message || "Failed to add production batch.",
-                    variant: "destructive"
-                  });
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              onClick={createProductionBatch}
               disabled={loading}
+              className="bg-creamello-purple hover:bg-creamello-purple/90"
             >
-              Add Batch
+              {loading ? "Creating..." : "Create Production Batch"}
             </Button>
           </DialogFooter>
         </DialogContent>

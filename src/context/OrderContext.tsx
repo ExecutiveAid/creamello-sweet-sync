@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { v4 as uuidv4 } from 'uuid';
+import InventoryMovementService from '@/services/inventoryMovementService';
 
 // Types for our order system
 export interface IceCreamFlavor {
@@ -96,19 +97,22 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setOrders(prev => prev.map(order => order.id === orderId ? { ...order, status } : order));
     await supabase.from('orders').update({ status }).eq('id', orderId);
 
-    // Deduct from production batch if delivered
+    // Deduct from inventory when order is completed
     if (status === 'completed') {
-      console.log(`Order ${orderId} marked as completed, deducting from production batches...`);
+      console.log(`Order ${orderId} marked as completed, deducting from inventory...`);
+      
       // Fetch the order and its items
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select('*, order_items(*)')
         .eq('id', orderId)
         .single();
+      
       if (orderError || !orderData) {
         console.error("Error fetching order data:", orderError);
         return;
       }
+      
       const items = orderData.order_items || [];
       console.log(`Processing ${items.length} items from order ${orderId}`);
       
@@ -117,16 +121,19 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         let deduction = 0;
         let unit = '';
         let productName = item.flavor_name;
-        // Try to fetch the menu item to get the category
+        
+        // Fetch the menu item to get the category
         let category = '';
         const { data: menuItem } = await supabase
           .from('menu_items')
           .select('category')
           .eq('name', productName)
           .single();
+        
         if (menuItem) category = menuItem.category;
         console.log(`Item: ${productName}, Category: ${category}, Scoops/Quantity: ${item.scoops || 1}`);
         
+        // Calculate deduction based on category (same logic as before)
         if (category === 'Flavors') {
           deduction = (item.scoops || 1) * 100; // 100g per scoop
           unit = 'g';
@@ -140,51 +147,103 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           deduction = (item.scoops || 1) * 1; // 1 per order
           unit = 'pcs';
         } else {
-          // Default: try to deduct by quantity if possible
+          // Default: deduct by quantity
           deduction = (item.scoops || 1);
           unit = '';
         }
         console.log(`Calculated deduction: ${deduction}${unit}`);
         
-        // Find the most recent production batch for this product
-        const { data: batch, error: batchError } = await supabase
-          .from('production_batches')
-          .select('*')
-          .eq('product_name', productName)
-          .order('production_date', { ascending: false })
-          .limit(1)
+        // NEW: Find the corresponding inventory item instead of production batch
+        const { data: inventoryItem, error: inventoryError } = await supabase
+          .from('inventory')
+          .select('id, name, category, available_quantity, unit, cost_per_unit, price_per_unit')
+          .eq('name', productName)
+          .eq('category', category)
+          .eq('is_active', true)
           .single();
           
-        if (batchError) {
-          console.error(`No batch found for ${productName}:`, batchError.message);
+        if (inventoryError || !inventoryItem) {
+          console.error(`No inventory item found for ${productName}:`, inventoryError?.message);
+          
+          // FALLBACK: Try the old production batch method for backward compatibility
+          console.log(`Falling back to production batch deduction for ${productName}...`);
+          const { data: batch, error: batchError } = await supabase
+            .from('production_batches')
+            .select('*')
+            .eq('product_name', productName)
+            .order('production_date', { ascending: false })
+            .limit(1)
+            .single();
+            
+          if (!batchError && batch && batch.available_quantity > 0) {
+            let convertedDeduction = deduction;
+            
+            // Convert units if needed
+            if (batch.unit === 'kg' && unit === 'g') {
+              convertedDeduction = deduction / 1000;
+            } else if (batch.unit === 'L' && unit === 'ml') {
+              convertedDeduction = deduction / 1000;
+            }
+            
+            const newQty = Math.max(0, batch.available_quantity - convertedDeduction);
+            await supabase
+              .from('production_batches')
+              .update({ available_quantity: newQty })
+              .eq('id', batch.id);
+            
+            console.log(`✅ Fallback: Updated production batch ${batch.id}`);
+          } else {
+            console.warn(`❌ No available stock for ${productName} in production batches either`);
+          }
           continue;
         }
+        
+        // NEW: Convert deduction to inventory unit if needed
+        let convertedDeduction = deduction;
+        if (inventoryItem.unit === 'kg' && unit === 'g') {
+          convertedDeduction = deduction / 1000; // convert g to kg
+          console.log(`Converting ${deduction}g to ${convertedDeduction}kg for inventory`);
+        } else if (inventoryItem.unit === 'L' && unit === 'ml') {
+          convertedDeduction = deduction / 1000; // convert ml to L
+          console.log(`Converting ${deduction}ml to ${convertedDeduction}L for inventory`);
+        } else if (inventoryItem.unit === 'pieces' && unit === 'pcs') {
+          // Same unit, no conversion needed
+          convertedDeduction = deduction;
+        }
+        
+        // Check if enough inventory is available
+        if (inventoryItem.available_quantity < convertedDeduction) {
+          console.warn(`❌ Insufficient inventory for ${productName}. Available: ${inventoryItem.available_quantity}${inventoryItem.unit}, Needed: ${convertedDeduction}${inventoryItem.unit}`);
+          continue;
+        }
+        
+        // NEW: Use InventoryMovementService to deduct from inventory with proper audit trail
+        console.log(`Deducting ${convertedDeduction}${inventoryItem.unit} from inventory for ${productName}`);
+        
+        const result = await InventoryMovementService.consumeStock({
+          inventory_id: inventoryItem.id,
+          quantity: convertedDeduction,
+          movement_type: 'SALE',
+          reference_type: 'SALE',
+          reference_id: orderId,
+          notes: `Sale: ${item.scoops || 1} ${item.scoops > 1 ? 'scoops' : 'scoop'} of ${productName}`,
+          created_by: orderData.staff_id || 'system'
+        });
+        
+        if (result.success) {
+          console.log(`✅ Successfully deducted ${convertedDeduction}${inventoryItem.unit} from inventory for ${productName}`);
           
-        if (batch && batch.available_quantity > 0) {
-          let newQty = batch.available_quantity;
-          let originalDeduction = deduction;
+          // Calculate and log profit information
+          const costOfGoodsSold = convertedDeduction * inventoryItem.cost_per_unit;
+          const revenue = item.price;
+          const profit = revenue - costOfGoodsSold;
           
-          // Convert units if needed
-          if (batch.unit === 'kg' && unit === 'g') {
-            deduction = deduction / 1000; // convert g to kg
-            console.log(`Converting ${originalDeduction}g to ${deduction}kg`);
-          } else if (batch.unit === 'L' && unit === 'ml') {
-            deduction = deduction / 1000; // convert ml to L
-            console.log(`Converting ${originalDeduction}ml to ${deduction}L`);
-          }
-          
-          newQty = Math.max(0, newQty - deduction);
-          console.log(`Deducting ${deduction}${batch.unit} from batch ${batch.id} for ${productName}`);
-          console.log(`Previous quantity: ${batch.available_quantity}${batch.unit}, New quantity: ${newQty}${batch.unit}`);
-          
-          await supabase
-            .from('production_batches')
-            .update({ available_quantity: newQty })
-            .eq('id', batch.id);
-          
-          console.log(`✅ Successfully updated batch ${batch.id}`);
+          console.log(`💰 Sales Analytics for ${productName}:`);
+          console.log(`   Revenue: GHS${revenue.toFixed(2)}`);
+          console.log(`   COGS: GHS${costOfGoodsSold.toFixed(2)} (${convertedDeduction}${inventoryItem.unit} × GHS${inventoryItem.cost_per_unit}/${inventoryItem.unit})`);
+          console.log(`   Profit: GHS${profit.toFixed(2)} (${((profit / revenue) * 100).toFixed(1)}% margin)`);
         } else {
-          console.warn(`❌ No available inventory for ${productName}`);
+          console.error(`❌ Failed to deduct inventory for ${productName}:`, result.error);
         }
       }
       console.log(`✅ Finished processing order ${orderId}`);

@@ -753,6 +753,7 @@ const Orders = () => {
             columns={orderColumns}
             title="Order Management"
             searchable={true}
+            maxHeight="600px"
             onSearch={(query) => {
               // Implement search functionality for orders
             }}

@@ -25,6 +25,7 @@ interface DataTableProps<T> {
   onSearch?: (query: string) => void;
   onRowClick?: (row: T) => void;
   actionButtons?: React.ReactNode;
+  maxHeight?: string; // Allow customization of max height
 }
 
 export function DataTable<T>({
@@ -35,6 +36,7 @@ export function DataTable<T>({
   onSearch,
   onRowClick,
   actionButtons,
+  maxHeight = "500px", // Default max height
 }: DataTableProps<T>) {
   const [searchQuery, setSearchQuery] = React.useState('');
   
@@ -75,44 +77,49 @@ export function DataTable<T>({
       )}
       
       <div className="rounded-lg border overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {columns.map((column, index) => (
-                <TableHead key={index}>
-                  {column.header}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.length === 0 ? (
+        <div 
+          className="overflow-auto"
+          style={{ maxHeight }}
+        >
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-background border-b shadow-sm">
               <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-8 text-muted-foreground">
-                  No data available
-                </TableCell>
+                {columns.map((column, index) => (
+                  <TableHead key={index} className="bg-background">
+                    {column.header}
+                  </TableHead>
+                ))}
               </TableRow>
-            ) : (
-              data.map((row, rowIndex) => (
-                <TableRow 
-                  key={rowIndex} 
-                  className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                >
-                  {columns.map((column, colIndex) => (
-                    <TableCell key={colIndex}>
-                      {column.cell 
-                        ? column.cell(row)
-                        : typeof column.accessorKey === 'function' 
-                          ? column.accessorKey(row)
-                          : String(row[column.accessorKey] || '')}
-                    </TableCell>
-                  ))}
+            </TableHeader>
+            <TableBody>
+              {data.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="text-center py-8 text-muted-foreground">
+                    No data available
+                  </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                data.map((row, rowIndex) => (
+                  <TableRow 
+                    key={rowIndex} 
+                    className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  >
+                    {columns.map((column, colIndex) => (
+                      <TableCell key={colIndex}>
+                        {column.cell 
+                          ? column.cell(row)
+                          : typeof column.accessorKey === 'function' 
+                            ? column.accessorKey(row)
+                            : String(row[column.accessorKey] || '')}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </div>
   );
