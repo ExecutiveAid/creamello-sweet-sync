@@ -12,8 +12,20 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-// COLORS for the graphs
-const COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', '#f58787', '#87f5e2', '#c387f5'];
+// COLORS for the graphs - now dynamic based on brand color
+const getDynamicColors = () => {
+  const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--brand-primary') || '#9b87f5';
+  return [
+    primaryColor,
+    '#f587b3', 
+    '#87d3f5', 
+    '#93f587', 
+    '#f5d687', 
+    '#f58787', 
+    '#87f5e2', 
+    '#c387f5'
+  ];
+};
 
 // Define the Peak Hours type
 interface HourlyData {
@@ -84,12 +96,26 @@ const Sales = () => {
   // Add state for order status data
   const [orderStatusData, setOrderStatusData] = useState<OrderStatusData[]>([]);
   
+  // Dynamic colors that update when brand color changes
+  const [chartColors, setChartColors] = useState(getDynamicColors());
+  
   // Set default date range to past 24 hours (no longer exposed to user)
   const startDate = format(subDays(new Date(), 1), 'yyyy-MM-dd');
   const endDate = format(new Date(), 'yyyy-MM-dd');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Update chart colors when brand color changes
+  useEffect(() => {
+    const updateColors = () => {
+      setChartColors(getDynamicColors());
+    };
+    
+    // Listen for brand color updates
+    window.addEventListener('brandingUpdated', updateColors);
+    return () => window.removeEventListener('brandingUpdated', updateColors);
+  }, []);
 
   useEffect(() => {
     const fetchSalesData = async () => {
@@ -670,8 +696,8 @@ const Sales = () => {
               >
                 <defs>
                   <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#9b87f5" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#9b87f5" stopOpacity={0.1}/>
+                                    <stop offset="5%" stopColor={getDynamicColors()[0]} stopOpacity={0.8}/>
+                <stop offset="95%" stopColor={getDynamicColors()[0]} stopOpacity={0.1}/>
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="day" stroke="#888888" />
@@ -681,7 +707,7 @@ const Sales = () => {
                 <Area 
                   type="monotone" 
                   dataKey="amount" 
-                  stroke="#9b87f5" 
+                  stroke={getDynamicColors()[0]} 
                   fillOpacity={1} 
                   fill="url(#colorSales)" 
                 />
@@ -718,10 +744,10 @@ const Sales = () => {
                 <Line 
                   type="monotone" 
                   dataKey="orderCount" 
-                  stroke="#9b87f5" 
+                  stroke={getDynamicColors()[0]} 
                   strokeWidth={2}
-                  dot={{ fill: '#9b87f5', strokeWidth: 2, r: 4 }}
-                  activeDot={{ r: 6, stroke: '#9b87f5', strokeWidth: 2 }}
+                  dot={{ fill: getDynamicColors()[0], strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6, stroke: getDynamicColors()[0], strokeWidth: 2 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -746,7 +772,7 @@ const Sales = () => {
                 <YAxis stroke="#888888" />
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <Tooltip />
-                <Bar dataKey="sales" name="Sales" fill="#9b87f5" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="sales" name="Sales" fill={getDynamicColors()[0]} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -772,7 +798,7 @@ const Sales = () => {
                   nameKey="name"
                 >
                   {employeeSales.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value) => `GHS${Number(value).toFixed(2)}`} />
@@ -803,7 +829,7 @@ const Sales = () => {
                   dataKey="value"
                 >
                   {paymentMethods.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
                   ))}
                 </Pie>
                 <Tooltip 

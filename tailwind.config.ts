@@ -1,4 +1,3 @@
-
 import type { Config } from "tailwindcss";
 
 export default {
@@ -63,7 +62,13 @@ export default {
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
 				},
-				// Creamello custom colors
+				// Dynamic brand colors (controlled by CSS variables)
+				brand: {
+					primary: 'var(--brand-primary)',
+					'primary-dark': 'var(--brand-primary-dark)',
+					'primary-light': 'var(--brand-primary-light)',
+				},
+				// Creamello custom colors (legacy - kept for compatibility)
 				creamello: {
 					purple: '#9b87f5',
 					'purple-dark': '#7E69AB',

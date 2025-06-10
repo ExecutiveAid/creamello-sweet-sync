@@ -552,6 +552,27 @@ const Reports = () => {
            ];
            break;
 
+         case 'opening_closing':
+           processedData = await generateOpeningClosingStockReport(inventory || []);
+           filename = 'opening_closing_stock_report.csv';
+           columns = [
+             { key: 'name', label: 'Item Name' },
+             { key: 'category', label: 'Category' },
+             { key: 'opening_stock', label: 'Opening Stock' },
+             { key: 'receipts', label: 'Receipts (+)' },
+             { key: 'issues', label: 'Issues (-)' },
+             { key: 'adjustments', label: 'Adjustments (+/-)' },
+             { key: 'closing_stock', label: 'Closing Stock' },
+             { key: 'unit', label: 'Unit' },
+             { key: 'opening_value', label: 'Opening Value (₵)' },
+             { key: 'closing_value', label: 'Closing Value (₵)' },
+             { key: 'value_change', label: 'Value Change (₵)' },
+             { key: 'movement_summary', label: 'Movement Summary' },
+             { key: 'period_start', label: 'Period Start' },
+             { key: 'period_end', label: 'Period End' }
+           ];
+           break;
+
         default:
           // Basic inventory report (fallback)
           processedData = (inventory || []).map(item => ({
@@ -1020,6 +1041,128 @@ const Reports = () => {
     }
   };
 
+  // Generate Opening & Closing Stock Report
+  const generateOpeningClosingStockReport = async (inventory: any[]) => {
+    try {
+      // Define the reporting period (default to current month if no dates selected)
+      const periodStart = startDate || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const periodEnd = endDate || new Date();
+      
+      // Query inventory movements for the period
+      const { data: movements, error: movementError } = await supabase
+        .from('inventory_movements')
+        .select('*')
+        .gte('created_at', periodStart.toISOString())
+        .lte('created_at', periodEnd.toISOString());
+
+      if (movementError) {
+        console.warn('Could not fetch movement data:', movementError);
+      }
+
+      // Query order items (issues) for the period
+      const { data: orderItems, error: orderError } = await supabase
+        .from('order_items')
+        .select(`
+          *,
+          orders!inner(created_at, status)
+        `)
+        .eq('orders.status', 'completed')
+        .gte('orders.created_at', periodStart.toISOString())
+        .lte('orders.created_at', periodEnd.toISOString());
+
+      if (orderError) {
+        console.warn('Could not fetch order data:', orderError);
+      }
+
+      return inventory.map(item => {
+        const currentStock = item.available_quantity || 0;
+        const costPerUnit = item.price_per_unit || 0;
+
+        // Calculate movements for this item during the period
+        const itemMovements = (movements || []).filter(m => 
+          m.item_name === item.name || m.item_id === item.id
+        );
+
+        const itemSales = (orderItems || []).filter(o => 
+          o.flavor_name === item.name
+        );
+
+        // Calculate movement totals
+        let receipts = 0;
+        let adjustments = 0;
+        let issues = 0;
+
+        // Process inventory movements
+        itemMovements.forEach(movement => {
+          const qty = movement.quantity_change || 0;
+          switch (movement.transaction_type) {
+            case 'receipt':
+            case 'Receipt':
+              receipts += Math.abs(qty);
+              break;
+            case 'adjustment':
+            case 'Adjustment':
+              adjustments += qty; // Can be positive or negative
+              break;
+            case 'issue':
+            case 'Issue':
+              issues += Math.abs(qty);
+              break;
+            case 'transfer_in':
+              receipts += Math.abs(qty);
+              break;
+            case 'transfer_out':
+              issues += Math.abs(qty);
+              break;
+          }
+        });
+
+        // Add sales as issues
+        itemSales.forEach(sale => {
+          issues += sale.scoops || 1;
+        });
+
+        // Calculate opening stock
+        // Opening Stock = Closing Stock - Receipts + Issues - Adjustments
+        const openingStock = currentStock - receipts + issues - adjustments;
+        const closingStock = currentStock;
+
+        // Calculate values
+        const openingValue = openingStock * costPerUnit;
+        const closingValue = closingStock * costPerUnit;
+        const valueChange = closingValue - openingValue;
+
+        // Create movement summary
+        let movementSummary = '';
+        if (receipts > 0) movementSummary += `+${receipts} received`;
+        if (issues > 0) movementSummary += `${movementSummary ? ', ' : ''}-${issues} issued`;
+        if (adjustments !== 0) movementSummary += `${movementSummary ? ', ' : ''}${adjustments > 0 ? '+' : ''}${adjustments} adjusted`;
+        if (!movementSummary) movementSummary = 'No movements';
+
+        return {
+          name: item.name,
+          category: item.category,
+          opening_stock: Math.max(0, openingStock),
+          receipts: receipts,
+          issues: issues,
+          adjustments: adjustments,
+          closing_stock: closingStock,
+          unit: item.unit || 'units',
+          opening_value: openingValue.toFixed(2),
+          closing_value: closingValue.toFixed(2),
+          value_change: valueChange.toFixed(2),
+          movement_summary: movementSummary,
+          period_start: format(periodStart, 'yyyy-MM-dd'),
+          period_end: format(periodEnd, 'yyyy-MM-dd'),
+          supplier_name: item.supplier?.name || 'N/A'
+        };
+      }).sort((a, b) => Math.abs(parseFloat(b.value_change)) - Math.abs(parseFloat(a.value_change))); // Sort by biggest value changes
+    } catch (error) {
+      console.error('Error generating opening/closing stock report:', error);
+      return [];
+    }
+  };
+
   // Generate Inventory Movement Report
   const generateInventoryMovementReport = async () => {
     try {
@@ -1456,7 +1599,7 @@ const Reports = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-creamello-purple" />
+                <TrendingUp className="h-5 w-5 text-brand-primary" />
                 Sales Reports
               </CardTitle>
               <CardDescription>Generate detailed or summary reports for your sales data</CardDescription>
@@ -1548,7 +1691,7 @@ const Reports = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-creamello-purple" />
+                <BarChart3 className="h-5 w-5 text-brand-primary" />
                 Enhanced Inventory Reports
               </CardTitle>
               <CardDescription>Generate comprehensive inventory reports with COGS analysis, filtering, and supplier performance metrics</CardDescription>
@@ -1570,6 +1713,7 @@ const Reports = () => {
                     <SelectItem value="reorder_point">Reorder Point Report</SelectItem>
                     <SelectItem value="shrinkage">Shrinkage Report</SelectItem>
                     <SelectItem value="movement">Inventory Movement Report</SelectItem>
+                    <SelectItem value="opening_closing">Opening & Closing Stock Report</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1688,6 +1832,9 @@ const Reports = () => {
                 {inventoryReportType === 'movement' && (
                   <p className="text-sm text-slate-600">Inventory Movement Report shows all inventory transactions (receipts, issues, adjustments) providing a complete audit trail of stock changes.</p>
                 )}
+                {inventoryReportType === 'opening_closing' && (
+                  <p className="text-sm text-slate-600">Opening & Closing Stock Report calculates stock levels at the beginning and end of a period, showing all movements (receipts, issues, adjustments) and value changes for accurate inventory accounting.</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1697,7 +1844,7 @@ const Reports = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FilePieChart className="h-5 w-5 text-creamello-purple" />
+                <FilePieChart className="h-5 w-5 text-brand-primary" />
                 Production Reports
               </CardTitle>
               <CardDescription>Generate reports on production batches and product availability including replenishment dates</CardDescription>
@@ -1771,7 +1918,7 @@ const Reports = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-creamello-purple" />
+                <FileText className="h-5 w-5 text-brand-primary" />
                 Orders Reports
               </CardTitle>
               <CardDescription>Generate reports on customer orders and their status</CardDescription>
@@ -1846,7 +1993,7 @@ const Reports = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Download className="h-5 w-5 text-creamello-purple" />
+                <Download className="h-5 w-5 text-brand-primary" />
                 Export Staff Hours Report
               </CardTitle>
               <CardDescription>Generate downloadable reports for payroll and management</CardDescription>
@@ -1937,7 +2084,7 @@ const Reports = () => {
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <Clock className="h-5 w-5 text-creamello-purple" />
+                    <Clock className="h-5 w-5 text-brand-primary" />
                     Staff Work Hours
                   </CardTitle>
                   <CardDescription>View and track staff attendance and work hours</CardDescription>
@@ -2009,7 +2156,7 @@ const Reports = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5 text-creamello-purple" />
+                <User className="h-5 w-5 text-brand-primary" />
                 Recent Attendance Records
               </CardTitle>
               <CardDescription>Complete attendance log for all staff members</CardDescription>
@@ -2067,7 +2214,7 @@ const Reports = () => {
         <Button 
           onClick={handleGenerateReport} 
           disabled={loading}
-          className="bg-creamello-purple hover:bg-creamello-purple-dark"
+                          className="bg-brand-primary hover:bg-brand-primary-dark"
           size="lg"
         >
           <Download className="mr-2 h-4 w-4" />

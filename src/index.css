@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -43,6 +42,12 @@
     --sidebar-accent-foreground: 260 10% 30%;
     --sidebar-border: 260 10% 90%;
     --sidebar-ring: 260 84% 75%;
+
+    /* Dynamic brand colors - these will be updated by JavaScript */
+    --brand-primary: #8B5CF6;
+    --brand-primary-dark: #7E69AB;
+    --brand-primary-light: #D6BCFA;
+    --brand-primary-rgb: 139, 92, 246;
   }
 
   .dark {
@@ -93,11 +98,49 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-muted rounded-full;
+    @apply bg-muted;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-primary/40 rounded-full hover:bg-primary/60 transition-colors;
+    @apply bg-muted-foreground/30 rounded;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+
+  /* Dynamic brand color utilities */
+  .bg-brand-primary {
+    background-color: var(--brand-primary);
+  }
+
+  .bg-brand-primary-dark {
+    background-color: var(--brand-primary-dark);
+  }
+
+  .text-brand-primary {
+    color: var(--brand-primary);
+  }
+
+  .border-brand-primary {
+    border-color: var(--brand-primary);
+  }
+
+  .ring-brand-primary {
+    --tw-ring-color: var(--brand-primary);
+  }
+
+  .focus\:ring-brand-primary:focus {
+    --tw-ring-color: var(--brand-primary);
+  }
+
+  /* Hover effects */
+  .hover\:bg-brand-primary-dark:hover {
+    background-color: var(--brand-primary-dark);
+  }
+
+  .hover\:bg-brand-primary\/90:hover {
+    background-color: rgb(var(--brand-primary-rgb) / 0.9);
   }
 }
 
@@ -112,5 +155,12 @@
 
   .creamello-input {
     @apply rounded-lg border-input bg-background px-4 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-creamello-purple focus:border-creamello-purple;
+  }
+}
+
+/* Print styles */
+@media print {
+  .print\:hidden {
+    display: none !important;
   }
 }

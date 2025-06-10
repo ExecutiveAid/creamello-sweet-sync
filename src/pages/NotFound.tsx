@@ -18,7 +18,7 @@ const NotFound = () => {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background">
       <div className="text-center space-y-5 px-4">
-        <div className="h-32 w-32 bg-creamello-purple rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="h-32 w-32 bg-brand-primary rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-white text-6xl font-bold">404</span>
         </div>
         <h1 className="text-4xl font-bold mb-4">Page Not Found</h1>
@@ -27,7 +27,7 @@ const NotFound = () => {
         </p>
         <Button 
           size="lg"
-          className="bg-creamello-purple hover:bg-creamello-purple-dark"
+                      className="bg-brand-primary hover:bg-brand-primary-dark"
           onClick={() => navigate("/")}
         >
           Return to Dashboard

@@ -27,6 +27,7 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
+import { updateBrandColors, saveBrandColor } from '@/utils/themeUtils';
 import {
   Dialog,
   DialogContent,
@@ -432,6 +433,14 @@ const Settings = () => {
   const [legalInfo, setLegalInfo] = useState<LegalInfo>(DEFAULT_LEGAL_INFO);
   const [contactInfo, setContactInfo] = useState<ContactInfo>(DEFAULT_CONTACT_INFO);
   const [locationInfo, setLocationInfo] = useState<LocationInfo>(DEFAULT_LOCATION_INFO);
+
+  // Apply brand colors when they change
+  useEffect(() => {
+    if (brandingSettings.primaryColor) {
+      updateBrandColors(brandingSettings.primaryColor);
+      saveBrandColor(brandingSettings.primaryColor);
+    }
+  }, [brandingSettings.primaryColor]);
 
   useEffect(() => {
     const fetchSettings = async () => {

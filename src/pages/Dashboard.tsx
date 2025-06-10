@@ -23,8 +23,20 @@ import { format, subDays } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
-// COLORS for the employee pie chart
-const EMPLOYEE_COLORS = ['#9b87f5', '#f587b3', '#87d3f5', '#93f587', '#f5d687', '#f58787', '#87f5e2', '#c387f5'];
+// COLORS for the employee pie chart - now dynamic based on brand color
+const getDynamicEmployeeColors = () => {
+  const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--brand-primary') || '#9b87f5';
+  return [
+    primaryColor,
+    '#f587b3', 
+    '#87d3f5', 
+    '#93f587', 
+    '#f5d687', 
+    '#f58787', 
+    '#87f5e2', 
+    '#c387f5'
+  ];
+};
 
 // Type definitions for dashboard data
 interface DailySalesRow {
@@ -68,6 +80,9 @@ const Dashboard = () => {
   const [productPerformance, setProductPerformance] = useState<ProductPerformanceRow[]>([]);
   // Add state for orders per employee
   const [ordersPerEmployee, setOrdersPerEmployee] = useState<OrdersPerEmployeeRow[]>([]);
+  
+  // Dynamic colors that update when brand color changes
+  const [employeeColors, setEmployeeColors] = useState(getDynamicEmployeeColors());
 
   // Process orders data function
   const processOrdersData = (orders: any[]) => {
@@ -217,6 +232,17 @@ const Dashboard = () => {
     }
   };
 
+  // Update chart colors when brand color changes
+  useEffect(() => {
+    const updateColors = () => {
+      setEmployeeColors(getDynamicEmployeeColors());
+    };
+    
+    // Listen for brand color updates
+    window.addEventListener('brandingUpdated', updateColors);
+    return () => window.removeEventListener('brandingUpdated', updateColors);
+  }, []);
+
   useEffect(() => {
     let subscription: RealtimeChannel | null = null;
 
@@ -358,7 +384,7 @@ const Dashboard = () => {
                   nameKey="name"
                 >
                   {ordersPerEmployee.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={EMPLOYEE_COLORS[index % EMPLOYEE_COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={employeeColors[index % employeeColors.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value) => `${value} orders`} />
@@ -384,7 +410,7 @@ const Dashboard = () => {
                 <YAxis stroke="#888888" />
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <Tooltip />
-                <Bar dataKey="sales" name="Sales" fill="#9b87f5" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="sales" name="Sales" fill={getDynamicEmployeeColors()[0]} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

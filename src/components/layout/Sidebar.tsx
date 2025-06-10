@@ -30,15 +30,15 @@ const NavItem = ({ to, icon: Icon, children, exact = false, highlighted = false 
         cn(
           "flex items-center gap-3 px-3 py-4 rounded-lg transition-colors hover:bg-sidebar-accent group",
           isActive
-            ? "bg-sidebar-accent text-primary font-bold"
+            ? "bg-sidebar-accent text-brand-primary font-bold"
             : "text-sidebar-foreground hover:text-sidebar-foreground font-bold",
-          highlighted && !isActive && "text-creamello-purple font-bold",
+          highlighted && !isActive && "text-brand-primary font-bold",
           state === 'collapsed' && 'justify-center px-0'
         )
       }
       end={exact}
     >
-      <Icon className={cn("h-7 w-7", highlighted && "text-creamello-purple")} />
+      <Icon className={cn("h-7 w-7", highlighted && "text-brand-primary")} />
       {state !== 'collapsed' && <span className="text-lg">{children}</span>}
     </NavLink>
   );
@@ -129,14 +129,11 @@ export const AppSidebar = () => {
               className="h-8 w-8 rounded-lg object-contain"
             />
           ) : (
-            <div 
-              className="h-8 w-8 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: brandingSettings.primaryColor }}
-            >
+            <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-brand-primary">
               <span className="text-white font-bold">
                 {brandingSettings.customShopName.charAt(0).toUpperCase()}
               </span>
-          </div>
+            </div>
           )}
           {!isCollapsed && (
             <h1 className="text-xl font-bold text-foreground">

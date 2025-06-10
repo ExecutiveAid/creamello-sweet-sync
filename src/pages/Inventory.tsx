@@ -322,7 +322,7 @@ const Inventory = () => {
   const getCategoryBadge = (category: string) => {
     switch (category.toLowerCase()) {
       case 'gelato':
-        return <Badge className="bg-purple-100 text-purple-800 border-purple-200">Gelato</Badge>;
+        return <Badge className="bg-brand-primary/20 text-brand-primary border-brand-primary/30">Gelato</Badge>;
       case 'juices':
         return <Badge className="bg-orange-100 text-orange-800 border-orange-200">Juices</Badge>;
       case 'milkshakes':
@@ -444,14 +444,18 @@ const Inventory = () => {
           <Button variant="outline" onClick={() => setShowStockTaking(true)}>
             <Package2 className="mr-2 h-4 w-4" /> Stock Taking
           </Button>
-          <Button onClick={async () => {
-            // Refresh categories before opening dialog
-            await fetchInventorySettings();
-            setDialogOpen(true);
-          }}>
+          <Button 
+            onClick={async () => {
+              // Refresh categories before opening dialog
+              await fetchInventorySettings();
+              setDialogOpen(true);
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" /> New Inventory Item
           </Button>
-          <Button onClick={() => setReplenishmentDialogOpen(true)}>
+          <Button 
+            onClick={() => setReplenishmentDialogOpen(true)}
+          >
             <Plus className="mr-2 h-4 w-4" /> Replenish Stock
           </Button>
         </div>
@@ -466,7 +470,7 @@ const Inventory = () => {
             id="lowStockFilter"
             checked={showLowStockOnly}
             onChange={(e) => setShowLowStockOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300 text-creamello-purple focus:ring-creamello-purple mr-2"
+                            className="h-4 w-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary mr-2"
           />
           <label htmlFor="lowStockFilter" className="text-sm font-medium flex items-center">
             <AlertTriangle className="h-4 w-4 text-amber-500 mr-1" />
@@ -685,7 +689,7 @@ const Inventory = () => {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-creamello-purple">Add New Inventory Item</DialogTitle>
+                          <DialogTitle className="text-xl font-bold text-brand-primary">Add New Inventory Item</DialogTitle>
             <DialogDescription>
               Create a new inventory item with complete details for proper stock management.
             </DialogDescription>
@@ -1089,7 +1093,7 @@ const Inventory = () => {
                 }
               }}
               disabled={loading}
-              className="bg-creamello-purple hover:bg-creamello-purple/90"
+              className="bg-brand-primary hover:bg-brand-primary/90"
             >
               {loading ? "Adding..." : "Add to Inventory"}
             </Button>
@@ -1099,7 +1103,7 @@ const Inventory = () => {
       <Dialog open={replenishmentDialogOpen} onOpenChange={setReplenishmentDialogOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold text-creamello-purple">Replenish Stock</DialogTitle>
+            <DialogTitle className="text-xl font-bold text-brand-primary">Replenish Stock</DialogTitle>
             <DialogDescription>
               Add stock to an existing inventory item.
             </DialogDescription>
@@ -1217,7 +1221,7 @@ const Inventory = () => {
                 }
               }}
               disabled={loading}
-              className="bg-creamello-purple hover:bg-creamello-purple/90"
+              className="bg-brand-primary hover:bg-brand-primary/90"
             >
               {loading ? "Replenishing..." : "Replenish Stock"}
             </Button>

@@ -495,7 +495,7 @@ const Orders = () => {
           row.status === 'pending' ? 'bg-yellow-500' :
           row.status === 'preparing' ? 'bg-blue-500' :
           row.status === 'ready' ? 'bg-green-500' :
-          row.status === 'completed' ? 'bg-purple-500' :
+                          row.status === 'completed' ? 'bg-brand-primary' :
           'bg-red-500'
         }>
           {row.status}
@@ -581,7 +581,7 @@ const Orders = () => {
             {menuCategories.map(cat => (
               <button
                 key={cat}
-                className={`px-4 py-2 rounded-full font-bold text-lg transition-colors ${activeCategory === cat ? 'bg-creamello-purple text-white' : 'bg-muted text-creamello-purple border border-creamello-purple'}`}
+                                  className={`px-4 py-2 rounded-full font-bold text-lg transition-colors ${activeCategory === cat ? 'bg-brand-primary text-white' : 'bg-muted text-brand-primary border border-brand-primary'}`}
                 onClick={() => setActiveCategory(cat)}
               >
                 {cat}
@@ -601,12 +601,12 @@ const Orders = () => {
                     return (
                       <button
                         key={item.id}
-                        className={`relative flex flex-col items-center justify-between rounded-xl border border-muted bg-white shadow-md p-4 h-44 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-creamello-purple hover:shadow-lg active:scale-95`}
+                        className={`relative flex flex-col items-center justify-between rounded-xl border border-muted bg-white shadow-md p-4 h-44 transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-primary hover:shadow-lg active:scale-95`}
                         onClick={() => addToCart(item)}
                         aria-label={`Add ${item.name} to order`}
                       >
                         {inCart && (
-                          <span className="absolute top-2 right-2 bg-creamello-purple text-white rounded-full px-3 py-1 text-lg font-bold shadow-lg z-10">
+                          <span className="absolute top-2 right-2 bg-brand-primary text-white rounded-full px-3 py-1 text-lg font-bold shadow-lg z-10">
                             {inCart.quantity}
                           </span>
                         )}
@@ -623,7 +623,7 @@ const Orders = () => {
             <div className="bg-gray-50 rounded-2xl shadow-lg p-8 flex flex-col min-h-[500px] md:min-h-[600px] xl:min-h-[700px] w-full md:w-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold">Order</h2>
-                <ShoppingCart className="h-6 w-6 text-creamello-purple" />
+                                    <ShoppingCart className="h-6 w-6 text-brand-primary" />
               </div>
               {cart.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground py-8">
@@ -642,7 +642,7 @@ const Orders = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <button
-                            className="bg-creamello-purple text-white rounded-full w-9 h-9 flex items-center justify-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-creamello-purple"
+                            className="bg-brand-primary text-white rounded-full w-9 h-9 flex items-center justify-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-brand-primary"
                             onClick={() => removeFromCart(item.id)}
                             aria-label={`Remove one ${item.name}`}
                             type="button"
@@ -651,7 +651,7 @@ const Orders = () => {
                           </button>
                           <span className="text-xl font-bold w-8 text-center">{item.quantity}</span>
                           <button
-                            className="bg-creamello-purple text-white rounded-full w-9 h-9 flex items-center justify-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-creamello-purple"
+                            className="bg-brand-primary text-white rounded-full w-9 h-9 flex items-center justify-center text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-brand-primary"
                             onClick={() => addToCart(item)}
                             aria-label={`Add one more ${item.name}`}
                             type="button"
@@ -671,7 +671,7 @@ const Orders = () => {
                   <div className="mt-4">
                     <label className="block text-sm font-medium mb-1">Payment Method</label>
                     <select
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-creamello-purple"
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-brand-primary"
                       value={paymentMethod}
                       onChange={e => setPaymentMethod(e.target.value)}
                     >
@@ -687,7 +687,7 @@ const Orders = () => {
                         type="number"
                         min={orderTotal}
                         step="0.01"
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-creamello-purple"
+                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-brand-primary"
                         value={amountPaid === 0 ? '' : amountPaid}
                         onChange={e => setAmountPaid(Number(e.target.value))}
                         placeholder={`GHS ${orderTotal.toFixed(2)}`}
@@ -700,7 +700,7 @@ const Orders = () => {
                   )}
                   <div className="flex gap-2 mt-6">
                     <Button
-                      className="flex-1 bg-creamello-purple hover:bg-creamello-purple-dark text-lg h-14"
+                      className="flex-1 bg-brand-primary hover:bg-brand-primary-dark text-lg h-14"
                       onClick={placeOrder}
                       disabled={cart.length === 0 || (paymentMethod === 'Cash' && amountPaid < orderTotal)}
                     >
@@ -749,13 +749,13 @@ const Orders = () => {
           <div className="flex flex-wrap gap-2 mb-4">
             <Badge 
               onClick={() => setStatusFilter(null)}
-              className={`px-3 py-1 cursor-pointer ${!statusFilter ? 'bg-creamello-purple text-white' : 'bg-secondary'}`}
+              className={`px-3 py-1 cursor-pointer ${!statusFilter ? 'bg-brand-primary text-white' : 'bg-secondary'}`}
             >
               All Orders
             </Badge>
             <Badge 
               onClick={() => setStatusFilter('completed')}
-              className={`px-3 py-1 cursor-pointer ${statusFilter === 'completed' ? 'bg-purple-500 text-white' : 'bg-secondary'}`}
+              className={`px-3 py-1 cursor-pointer ${statusFilter === 'completed' ? 'bg-brand-primary text-white' : 'bg-secondary'}`}
             >
               Completed
             </Badge>

@@ -680,7 +680,9 @@ const Production = () => {
           <Button variant="outline" size="icon" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button 
+            onClick={() => setDialogOpen(true)}
+          >
             <Plus className="mr-2 h-4 w-4" /> New Production Batch
           </Button>
         </div>
@@ -695,7 +697,7 @@ const Production = () => {
             id="lowStockFilter"
             checked={showLowStockOnly}
             onChange={(e) => setShowLowStockOnly(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300 text-creamello-purple focus:ring-creamello-purple mr-2"
+                            className="h-4 w-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary mr-2"
           />
           <label htmlFor="lowStockFilter" className="text-sm font-medium flex items-center">
             <AlertTriangle className="h-4 w-4 text-red-500 mr-1" />
@@ -1134,7 +1136,7 @@ const Production = () => {
             <Button
               onClick={createProductionBatch}
               disabled={loading}
-              className="bg-creamello-purple hover:bg-creamello-purple/90"
+                              className="bg-brand-primary hover:bg-brand-primary/90"
             >
               {loading ? "Creating..." : "Create Production Batch"}
             </Button>

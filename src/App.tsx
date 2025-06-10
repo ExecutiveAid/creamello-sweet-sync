@@ -19,6 +19,8 @@ import { IngredientInventoryProvider } from "./context/IngredientInventoryContex
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Auth from './pages/Auth';
 import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { updateBrandColors } from '@/utils/themeUtils';
 
 const queryClient = new QueryClient();
 
@@ -71,6 +73,25 @@ const App = () => {
       // Stash the event so it can be triggered later
       setDeferredPrompt(e);
     });
+
+    // Load and apply brand colors on app startup
+    const loadBrandColors = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('settings')
+          .select('branding_settings')
+          .limit(1)
+          .single();
+        
+        if (data && data.branding_settings && data.branding_settings.primaryColor) {
+          updateBrandColors(data.branding_settings.primaryColor);
+        }
+      } catch (error) {
+        console.log('Could not load brand colors:', error);
+      }
+    };
+
+    loadBrandColors();
   }, []);
 
   const handleInstallClick = () => {
