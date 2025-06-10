@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { supabase } from '@/integrations/supabase/client';
 import { v4 as uuidv4 } from 'uuid';
 import InventoryMovementService from '@/services/inventoryMovementService';
+import { SundaeDeductionService } from '@/services/sundaeDeductionService';
+import { isSundae } from '@/config/sundaeRecipes';
 
 // Types for our order system
 export interface IceCreamFlavor {
@@ -117,9 +119,6 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       console.log(`Processing ${items.length} items from order ${orderId}`);
       
       for (const item of items) {
-        // Determine deduction amount and unit
-        let deduction = 0;
-        let unit = '';
         let productName = item.flavor_name;
         
         // Fetch the menu item to get the category
@@ -133,7 +132,38 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         if (menuItem) category = menuItem.category;
         console.log(`Item: ${productName}, Category: ${category}, Scoops/Quantity: ${item.scoops || 1}`);
         
-        // Calculate deduction based on category (same logic as before)
+        // 🍨 NEW: Handle sundaes with recipe-based deduction
+        if (category === 'Sundaes' && isSundae(productName)) {
+          console.log(`🍨 Processing sundae: ${productName}`);
+          
+          const sundaeResult = await SundaeDeductionService.deductSundaeIngredients(
+            productName,
+            item.scoops || 1,
+            orderId,
+            orderData.staff_id || 'system'
+          );
+          
+          if (sundaeResult.success) {
+            console.log(`✅ Sundae deduction successful for ${productName}:`);
+            console.log(`   Deducted ingredients: ${sundaeResult.deductedIngredients.join(', ')}`);
+          } else {
+            console.error(`❌ Sundae deduction failed for ${productName}:`);
+            if (sundaeResult.missingIngredients.length > 0) {
+              console.error(`   Missing: ${sundaeResult.missingIngredients.join(', ')}`);
+            }
+            if (sundaeResult.errors.length > 0) {
+              console.error(`   Errors: ${sundaeResult.errors.join(', ')}`);
+            }
+          }
+          
+          // Skip the normal deduction process for sundaes
+          continue;
+        }
+        
+        // 🥤 Handle other categories with simple deduction logic
+        let deduction = 0;
+        let unit = '';
+        
         if (category === 'Flavors') {
           deduction = (item.scoops || 1) * 100; // 100g per scoop
           unit = 'g';
@@ -143,9 +173,6 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         } else if (category === 'Juice') {
           deduction = (item.scoops || 1) * 250; // 250ml per order
           unit = 'ml';
-        } else if (category === 'Sundaes' && productName.toLowerCase().includes('cone')) {
-          deduction = (item.scoops || 1) * 1; // 1 per order
-          unit = 'pcs';
         } else {
           // Default: deduct by quantity
           deduction = (item.scoops || 1);
@@ -167,30 +194,30 @@ export const OrderProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           
           // FALLBACK: Try the old production batch method for backward compatibility
           console.log(`Falling back to production batch deduction for ${productName}...`);
-          const { data: batch, error: batchError } = await supabase
-            .from('production_batches')
-            .select('*')
-            .eq('product_name', productName)
-            .order('production_date', { ascending: false })
-            .limit(1)
-            .single();
-            
+        const { data: batch, error: batchError } = await supabase
+          .from('production_batches')
+          .select('*')
+          .eq('product_name', productName)
+          .order('production_date', { ascending: false })
+          .limit(1)
+          .single();
+          
           if (!batchError && batch && batch.available_quantity > 0) {
             let convertedDeduction = deduction;
-            
-            // Convert units if needed
-            if (batch.unit === 'kg' && unit === 'g') {
+          
+          // Convert units if needed
+          if (batch.unit === 'kg' && unit === 'g') {
               convertedDeduction = deduction / 1000;
-            } else if (batch.unit === 'L' && unit === 'ml') {
+          } else if (batch.unit === 'L' && unit === 'ml') {
               convertedDeduction = deduction / 1000;
-            }
-            
+          }
+          
             const newQty = Math.max(0, batch.available_quantity - convertedDeduction);
-            await supabase
-              .from('production_batches')
-              .update({ available_quantity: newQty })
-              .eq('id', batch.id);
-            
+          await supabase
+            .from('production_batches')
+            .update({ available_quantity: newQty })
+            .eq('id', batch.id);
+          
             console.log(`✅ Fallback: Updated production batch ${batch.id}`);
           } else {
             console.warn(`❌ No available stock for ${productName} in production batches either`);

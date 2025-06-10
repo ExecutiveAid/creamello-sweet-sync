@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
-import { AlertTriangle, RefreshCw, Plus, Package2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Plus, Package2, Trash2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, parseISO, isAfter, addDays, differenceInDays } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -66,8 +66,8 @@ interface InventoryMovement {
   created_at: string;
 }
 
-// Production inventory categories (matching the new system)
-const INVENTORY_CATEGORIES = [
+// Default inventory categories and units (fallbacks)
+const DEFAULT_INVENTORY_CATEGORIES = [
   'Gelato',
   'Juices', 
   'Milkshakes',
@@ -83,8 +83,7 @@ const INVENTORY_CATEGORIES = [
   'Other'
 ];
 
-// Standardized units (matching database enum)
-const INVENTORY_UNITS = [
+const DEFAULT_INVENTORY_UNITS = [
   'kg',
   'g',
   'L',
@@ -131,6 +130,13 @@ const Inventory = () => {
   const [productNames, setProductNames] = useState<{name: string; category: string}[]>([]);
   const [filteredProductNames, setFilteredProductNames] = useState<{name: string; category: string}[]>([]);
   
+  // Dynamic inventory configuration from settings
+  const [inventoryCategories, setInventoryCategories] = useState<string[]>(DEFAULT_INVENTORY_CATEGORIES);
+  const [inventoryUnits, setInventoryUnits] = useState<string[]>(DEFAULT_INVENTORY_UNITS);
+  
+  // Suppliers state
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  
   const [newItem, setNewItem] = useState({
     name: '',
     category: '',
@@ -141,7 +147,7 @@ const Inventory = () => {
     minimum_stock_level: 5,
     maximum_stock_level: 100,
     reorder_point: 10,
-    supplier: '',
+    supplier_id: 'none',
     barcode: '',
     batch_number: '',
     location: 'main',
@@ -154,6 +160,10 @@ const Inventory = () => {
   const [replenishmentQuantity, setReplenishmentQuantity] = useState(0);
   const [replenishmentUnitCost, setReplenishmentUnitCost] = useState(0);
   const [replenishmentReferenceNumber, setReplenishmentReferenceNumber] = useState('');
+  
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<InventoryProduct | null>(null);
 
   // Filter product names when category changes
   useEffect(() => {
@@ -181,7 +191,7 @@ const Inventory = () => {
     } catch (err: any) {
       console.error('Error fetching categories:', err.message);
       // Fallback to static categories if database fetch fails
-      setCategories(INVENTORY_CATEGORIES);
+      setCategories(inventoryCategories);
     }
   };
 
@@ -198,6 +208,40 @@ const Inventory = () => {
     } catch (err: any) {
       console.error('Error fetching product names:', err.message);
       // Don't show error to user, just log it
+    }
+  };
+
+  // Load inventory configuration from settings
+  const fetchInventorySettings = async () => {
+    try {
+      const { data, error } = await supabase.from('settings').select('inventory_categories, inventory_units').limit(1).single();
+      if (data) {
+        // Load inventory categories
+        if (data.inventory_categories) {
+          setInventoryCategories(data.inventory_categories);
+        }
+        
+        // Load inventory units - extract just the names from the unit objects
+        if (data.inventory_units) {
+          const unitNames = data.inventory_units.map((unit: any) => unit.name || unit);
+          setInventoryUnits(unitNames);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error fetching inventory settings:', err.message);
+      // Will use default values
+    }
+  };
+
+  // Load suppliers from database
+  const fetchSuppliers = async () => {
+    try {
+      const { data, error } = await supabase.from('suppliers').select('*').eq('is_active', true).order('name');
+      if (error) throw error;
+      setSuppliers(data || []);
+    } catch (err: any) {
+      console.error('Error fetching suppliers:', err.message);
+      // Will use empty array as fallback
     }
   };
 
@@ -241,9 +285,14 @@ const Inventory = () => {
         setLoading(false);
       }
     };
-    fetchInventory();
-    fetchCategories();
-    fetchProductNames();
+    
+    // Load settings first, then inventory data
+    fetchInventorySettings().then(() => {
+      fetchInventory();
+      fetchCategories();
+      fetchProductNames();
+      fetchSuppliers();
+    });
   }, []);
 
   // Filtering
@@ -305,6 +354,10 @@ const Inventory = () => {
     setLoading(true);
     setError(null);
     try {
+      // Refresh inventory settings (categories and units) first
+      await fetchInventorySettings();
+      
+      // Then refresh inventory data
       const { data, error: fetchError } = await supabase
         .from('inventory')
         .select('*')
@@ -314,7 +367,13 @@ const Inventory = () => {
       console.log('Refreshed inventory items:', data); // Debug log
       setProducts(data || []);
       setFilteredProducts(data || []);
-      toast({ title: 'Inventory Refreshed', description: 'Inventory data has been refreshed.' });
+      
+      // Also refresh categories, product names, and suppliers
+      await fetchCategories();
+      await fetchProductNames();
+      await fetchSuppliers();
+      
+      toast({ title: 'Inventory Refreshed', description: 'Inventory data and categories have been refreshed.' });
     } catch (err: any) {
       setError(err.message || 'Failed to refresh inventory');
     } finally {
@@ -329,6 +388,44 @@ const Inventory = () => {
     if (category.toLowerCase().includes('cone') || category.toLowerCase().includes('sundae')) return 'pcs';
     if (category.toLowerCase().includes('dairy') || category.toLowerCase().includes('ingredients')) return 'L';
     return '';
+  };
+
+  // Handle delete product
+  const handleDeleteProduct = async () => {
+    if (!productToDelete) return;
+    
+    try {
+      setLoading(true);
+      
+      // Delete the inventory item (soft delete by setting is_active to false)
+      const { error } = await supabase
+        .from('inventory')
+        .update({ is_active: false })
+        .eq('id', productToDelete.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "✅ Item Deleted",
+        description: `${productToDelete.name} has been removed from inventory.`
+      });
+      
+      // Close dialog and reset state
+      setDeleteDialogOpen(false);
+      setProductToDelete(null);
+      
+      // Refresh the inventory list
+      await handleRefresh();
+      
+    } catch (err: any) {
+      toast({
+        title: "Error Deleting Item",
+        description: err.message || "Failed to delete inventory item. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Show Stock Taking component if selected
@@ -347,7 +444,11 @@ const Inventory = () => {
           <Button variant="outline" onClick={() => setShowStockTaking(true)}>
             <Package2 className="mr-2 h-4 w-4" /> Stock Taking
           </Button>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={async () => {
+            // Refresh categories before opening dialog
+            await fetchInventorySettings();
+            setDialogOpen(true);
+          }}>
             <Plus className="mr-2 h-4 w-4" /> New Inventory Item
           </Button>
           <Button onClick={() => setReplenishmentDialogOpen(true)}>
@@ -555,6 +656,26 @@ const Inventory = () => {
               );
             }
           },
+          {
+            header: "Actions",
+            cell: (row: InventoryProduct) => (
+              <div className="flex gap-2 justify-center">
+                {isAdminOrManager && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setProductToDelete(row);
+                      setDeleteDialogOpen(true);
+                    }}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                  </Button>
+                )}
+              </div>
+            ),
+          },
         ]}
         title="Product Inventory"
         searchable={true}
@@ -592,11 +713,11 @@ const Inventory = () => {
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                      {INVENTORY_CATEGORIES.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
+                                              {inventoryCategories.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
                 </SelectContent>
               </Select>
             </div>
@@ -641,11 +762,11 @@ const Inventory = () => {
                   <SelectValue placeholder="Select unit" />
                 </SelectTrigger>
                 <SelectContent>
-                  {INVENTORY_UNITS.map((unit) => (
-                    <SelectItem key={unit} value={unit}>
-                      {unit}
-                    </SelectItem>
-                  ))}
+                                          {inventoryUnits.map((unit) => (
+                          <SelectItem key={unit} value={unit}>
+                            {unit}
+                          </SelectItem>
+                        ))}
                 </SelectContent>
               </Select>
             </div>
@@ -767,12 +888,22 @@ const Inventory = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="supplier" className="text-sm font-medium">Supplier</Label>
-                  <Input
-                    id="supplier"
-                    value={newItem.supplier}
-                    onChange={e => setNewItem({ ...newItem, supplier: e.target.value })}
-                    placeholder="Supplier name"
-                  />
+                  <Select
+                    value={newItem.supplier_id}
+                    onValueChange={v => setNewItem({ ...newItem, supplier_id: v })}
+                  >
+                    <SelectTrigger id="supplier">
+                      <SelectValue placeholder="Select supplier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No supplier</SelectItem>
+                      {suppliers.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id}>
+                          {supplier.name} ({supplier.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -827,7 +958,7 @@ const Inventory = () => {
                   minimum_stock_level: 5,
                   maximum_stock_level: 100,
                   reorder_point: 10,
-                  supplier: '',
+                  supplier_id: 'none',
                   barcode: '',
                   batch_number: '',
                   location: 'main',
@@ -901,7 +1032,7 @@ const Inventory = () => {
                       minimum_stock_level: newItem.minimum_stock_level,
                       maximum_stock_level: newItem.maximum_stock_level,
                       reorder_point: newItem.reorder_point,
-                      supplier: newItem.supplier || null,
+                      supplier_id: newItem.supplier_id === 'none' ? null : newItem.supplier_id || null,
                       barcode: newItem.barcode || null,
                       batch_number: newItem.batch_number || null,
                       location: newItem.location,
@@ -940,7 +1071,7 @@ const Inventory = () => {
                     minimum_stock_level: 5,
                     maximum_stock_level: 100,
                     reorder_point: 10,
-                    supplier: '',
+                    supplier_id: 'none',
                     barcode: '',
                     batch_number: '',
                     location: 'main',
@@ -1089,6 +1220,55 @@ const Inventory = () => {
               className="bg-creamello-purple hover:bg-creamello-purple/90"
             >
               {loading ? "Replenishing..." : "Replenish Stock"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Inventory Item</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this inventory item? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {productToDelete && (
+            <div className="py-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex items-center mb-2">
+                  <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
+                  <span className="font-semibold text-red-800">Item to be deleted:</span>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div><strong>Name:</strong> {productToDelete.name}</div>
+                  <div><strong>SKU:</strong> {productToDelete.sku}</div>
+                  <div><strong>Category:</strong> {productToDelete.category}</div>
+                  <div><strong>Available Quantity:</strong> {productToDelete.available_quantity} {productToDelete.unit}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                setProductToDelete(null);
+              }}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleDeleteProduct}
+              disabled={loading}
+            >
+              {loading ? "Deleting..." : "Delete Item"}
             </Button>
           </DialogFooter>
         </DialogContent>

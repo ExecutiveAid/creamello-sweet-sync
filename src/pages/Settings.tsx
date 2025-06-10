@@ -36,9 +36,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { Pencil, Trash2, Plus, Clock, Calendar, Settings as SettingsIcon, Shield } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { format, parseISO, differenceInMinutes, addDays, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
+import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import Receipt, { ReceiptTemplate, ReceiptOrder } from '@/components/Receipt';
 import { printReceipt } from '@/utils/receiptPrinter';
@@ -94,20 +96,69 @@ interface MenuItem {
   category: string;
   price: number;
   description: string | null;
+  recipe?: SundaeIngredient[] | null;
 }
 
-// Type for staff attendance records
-interface StaffAttendance {
+// Sundae ingredient interface (matching the config file)
+interface SundaeIngredient {
+  name: string;
+  quantity: number;
+  unit: string;
+  category?: string;
+}
+
+
+
+// Type for inventory units
+interface InventoryUnit {
+  name: string;
+  type: 'weight' | 'volume' | 'count' | 'container';
+  description: string;
+}
+
+// Type for suppliers
+interface Supplier {
   id: string;
-  staff_id: string;
-  staff_name?: string;
-  login_time: string;
-  logout_time: string | null;
-  total_minutes?: number;
+  name: string;
+  code: string;
+  contact_person?: string;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  website?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+  business_type?: string;
+  tax_id?: string;
+  registration_number?: string;
+  payment_terms?: string;
+  credit_limit?: number;
+  discount_percentage?: number;
+  lead_time_days?: number;
+  minimum_order_amount?: number;
+  categories?: string[];
+  is_active: boolean;
+  is_preferred: boolean;
+  notes?: string;
 }
 
-// List of menu categories
-const MENU_CATEGORIES = [
+// Type for supplier settings
+interface SupplierSettings {
+  default_payment_terms: string;
+  default_lead_time_days: number;
+  require_supplier_approval: boolean;
+  auto_generate_supplier_codes: boolean;
+  supplier_code_prefix: string;
+  default_country: string;
+  default_currency: string;
+}
+
+// Default menu categories (fallback)
+const DEFAULT_MENU_CATEGORIES = [
   'Flavors',
   'Toppings',
   'Waffles & Pancakes',
@@ -115,6 +166,110 @@ const MENU_CATEGORIES = [
   'Milkshakes',
   'Juice',
 ];
+
+// Default inventory categories (fallback)
+const DEFAULT_INVENTORY_CATEGORIES = [
+  'Gelato',
+  'Juices', 
+  'Milkshakes',
+  'Pancakes',
+  'Waffles',
+  'Sundaes',
+  'Cones',
+  'Toppings',
+  'Dairy',
+  'Ingredients',
+  'Packaging',
+  'Supplies',
+  'Other'
+];
+
+// Default inventory units (fallback)
+const DEFAULT_INVENTORY_UNITS: InventoryUnit[] = [
+  { name: 'kg', type: 'weight', description: 'Kilograms' },
+  { name: 'g', type: 'weight', description: 'Grams' },
+  { name: 'L', type: 'volume', description: 'Liters' },
+  { name: 'ml', type: 'volume', description: 'Milliliters' },
+  { name: 'pieces', type: 'count', description: 'Individual pieces' },
+  { name: 'pcs', type: 'count', description: 'Pieces' },
+  { name: 'boxes', type: 'container', description: 'Boxes' },
+  { name: 'packs', type: 'container', description: 'Packs' },
+  { name: 'bottles', type: 'container', description: 'Bottles' },
+  { name: 'bags', type: 'container', description: 'Bags' },
+  { name: 'containers', type: 'container', description: 'Containers' },
+  { name: 'rolls', type: 'container', description: 'Rolls' },
+  { name: 'sheets', type: 'container', description: 'Sheets' }
+];
+
+// ===== Enhanced Business-Profile Types =====
+
+interface BusinessProfile {
+  legalBusinessName: string;
+  displayName: string;
+  tradingAs: string;
+  businessType: string;
+  description: string;
+  industryType: string;
+  yearEstablished: string;
+  numberOfEmployees: string;
+}
+
+interface LegalInfo {
+  registrationNumber: string;
+  taxIdentificationNumber: string;
+  vatNumber: string;
+}
+
+interface ContactInfo {
+  phone: string;
+  mobile: string;
+  website: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}
+
+interface LocationInfo {
+  locationType: 'single' | 'chain' | 'franchise';
+  locationCode: string;
+  timezone: string;
+}
+
+const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
+  legalBusinessName: '',
+  displayName: '',
+  tradingAs: '',
+  businessType: 'sole_proprietorship',
+  description: '',
+  industryType: 'food_service',
+  yearEstablished: '',
+  numberOfEmployees: '1-10',
+};
+
+const DEFAULT_LEGAL_INFO: LegalInfo = {
+  registrationNumber: '',
+  taxIdentificationNumber: '',
+  vatNumber: '',
+};
+
+const DEFAULT_CONTACT_INFO: ContactInfo = {
+  phone: '',
+  mobile: '',
+  website: '',
+  addressLine1: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  country: '',
+};
+
+const DEFAULT_LOCATION_INFO: LocationInfo = {
+  locationType: 'single',
+  locationCode: '',
+  timezone: 'Africa/Accra',
+};
 
 const Settings = () => {
   const [shopName, setShopName] = useState('Creamello');
@@ -148,13 +303,11 @@ const Settings = () => {
     settings: false,
   });
   
-  // Staff attendance tracking
-  const [staffAttendance, setStaffAttendance] = useState<StaffAttendance[]>([]);
-  const [dailyHours, setDailyHours] = useState<Record<string, any>>({});
-  const [selectedWeek, setSelectedWeek] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+
   
   // Menu items state
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [menuCategories, setMenuCategories] = useState<string[]>(DEFAULT_MENU_CATEGORIES);
   const [showAddMenuItem, setShowAddMenuItem] = useState(false);
   const [showEditMenuItem, setShowEditMenuItem] = useState(false);
   const [currentMenuItem, setCurrentMenuItem] = useState<MenuItem | null>(null);
@@ -163,10 +316,62 @@ const Settings = () => {
     category: 'Flavors',
     price: 0,
     description: '',
+    recipe: null,
   });
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+
+  // Category management state
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategoryIndex, setEditingCategoryIndex] = useState<number | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+
+  // Inventory configuration state
+  const [inventoryCategories, setInventoryCategories] = useState<string[]>(DEFAULT_INVENTORY_CATEGORIES);
+  const [inventoryUnits, setInventoryUnits] = useState<InventoryUnit[]>(DEFAULT_INVENTORY_UNITS);
+  
+  // Inventory category management state
+  const [showInventoryCategoryManager, setShowInventoryCategoryManager] = useState(false);
+  const [newInventoryCategoryName, setNewInventoryCategoryName] = useState('');
+  const [editingInventoryCategoryIndex, setEditingInventoryCategoryIndex] = useState<number | null>(null);
+  const [editingInventoryCategoryName, setEditingInventoryCategoryName] = useState('');
+  
+  // Inventory units management state
+  const [showInventoryUnitManager, setShowInventoryUnitManager] = useState(false);
+  const [newInventoryUnit, setNewInventoryUnit] = useState<InventoryUnit>({ name: '', type: 'count', description: '' });
+  const [editingInventoryUnitIndex, setEditingInventoryUnitIndex] = useState<number | null>(null);
+  const [editingInventoryUnit, setEditingInventoryUnit] = useState<InventoryUnit>({ name: '', type: 'count', description: '' });
+
+  // Supplier management state
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [supplierSettings, setSupplierSettings] = useState<SupplierSettings>({
+    default_payment_terms: 'net30',
+    default_lead_time_days: 7,
+    require_supplier_approval: false,
+    auto_generate_supplier_codes: true,
+    supplier_code_prefix: 'SUP',
+    default_country: 'Ghana',
+    default_currency: 'GHS'
+  });
+  const [showSupplierManager, setShowSupplierManager] = useState(false);
+  const [showAddSupplier, setShowAddSupplier] = useState(false);
+  const [showEditSupplier, setShowEditSupplier] = useState(false);
+  const [currentSupplier, setCurrentSupplier] = useState<Supplier | null>(null);
+  const [newSupplier, setNewSupplier] = useState<Partial<Supplier>>({
+    name: '',
+    contact_person: '',
+    email: '',
+    phone: '',
+    business_type: 'local',
+    payment_terms: 'net30',
+    lead_time_days: 7,
+    is_active: true,
+    is_preferred: false,
+    categories: [],
+    country: 'Ghana'
+  });
 
   // Business Operations settings
   const [businessHours, setBusinessHours] = useState({
@@ -219,6 +424,14 @@ const Settings = () => {
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Inventory items for ingredient picker
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile>(DEFAULT_BUSINESS_PROFILE);
+  const [legalInfo, setLegalInfo] = useState<LegalInfo>(DEFAULT_LEGAL_INFO);
+  const [contactInfo, setContactInfo] = useState<ContactInfo>(DEFAULT_CONTACT_INFO);
+  const [locationInfo, setLocationInfo] = useState<LocationInfo>(DEFAULT_LOCATION_INFO);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -286,6 +499,29 @@ const Settings = () => {
           encoding: 'utf-8',
           cutType: 'full',
         });
+
+        setBusinessProfile({ ...DEFAULT_BUSINESS_PROFILE, ...(data.business_profile || {}) });
+        setLegalInfo({ ...DEFAULT_LEGAL_INFO, ...(data.legal_info || {}) });
+        setContactInfo(prev => ({ ...prev, ...(data.contact_info || {}) }));
+        setLocationInfo({ ...DEFAULT_LOCATION_INFO, ...(data.location_info || {}) });
+        
+        // Load menu categories
+        setMenuCategories(data.menu_categories || DEFAULT_MENU_CATEGORIES);
+        
+        // Load inventory configuration
+        setInventoryCategories(data.inventory_categories || DEFAULT_INVENTORY_CATEGORIES);
+        setInventoryUnits(data.inventory_units || DEFAULT_INVENTORY_UNITS);
+        
+        // Load supplier settings
+        setSupplierSettings(data.supplier_settings || {
+          default_payment_terms: 'net30',
+          default_lead_time_days: 7,
+          require_supplier_approval: false,
+          auto_generate_supplier_codes: true,
+          supplier_code_prefix: 'SUP',
+          default_country: 'Ghana',
+          default_currency: 'GHS'
+        });
       }
     };
     fetchSettings();
@@ -310,73 +546,36 @@ const Settings = () => {
       };
       fetchMenuItems();
       
-      // Fetch staff attendance data
-      fetchStaffAttendance();
+      // Fetch suppliers
+      const fetchSuppliers = async () => {
+        const { data, error } = await supabase.from('suppliers').select('*').order('name');
+        if (error) {
+          console.error('Error fetching suppliers:', error);
+        } else {
+          setSuppliers(data || []);
+        }
+      };
+      
+      // Fetch inventory items for ingredient picker
+      const fetchInventoryItems = async () => {
+        const { data, error } = await supabase
+          .from('inventory')
+          .select('id, name, category, unit, available_quantity')
+          .eq('is_active', true)
+          .gt('available_quantity', 0)
+          .order('name');
+        if (!error) {
+          setInventoryItems(data || []);
+        }
+      };
+      
+      fetchSuppliers();
+      fetchInventoryItems();
       fetchSystemStats();
     }
-  }, [isAdmin, selectedWeek]);
+      }, [isAdmin]);
   
-  // Function to fetch staff attendance data for the selected week
-  const fetchStaffAttendance = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('staff_attendance')
-        .select('*, staff(name)')
-        .order('login_time', { ascending: false });
-        
-      if (error) {
-        console.error('Error fetching staff attendance:', error);
-        return;
-      }
 
-      // Format the data with staff names
-      const formattedData = (data || []).map(record => ({
-        ...record,
-        staff_name: record.staff?.name || 'Unknown',
-        total_minutes: record.logout_time 
-          ? differenceInMinutes(parseISO(record.logout_time), parseISO(record.login_time))
-          : null
-      }));
-
-      setStaffAttendance(formattedData);
-      
-      // Calculate daily hours for the selected week
-      calculateDailyHours(formattedData);
-    } catch (err) {
-      console.error('Error in fetchStaffAttendance:', err);
-    }
-  };
-
-  // Function to calculate daily hours for the selected week
-  const calculateDailyHours = (data: StaffAttendance[]) => {
-    const hours: Record<string, any> = {};
-    
-    data.forEach(record => {
-      if (!record.total_minutes) return;
-      
-      const day = format(new Date(record.login_time), 'yyyy-MM-dd');
-      const staffId = record.staff_id;
-      const staffName = record.staff_name;
-      
-      if (!hours[staffId]) {
-        hours[staffId] = { 
-          name: staffName,
-          days: {},
-          totalHours: 0 
-        };
-      }
-      
-      if (!hours[staffId].days[day]) {
-        hours[staffId].days[day] = 0;
-      }
-      
-      // Add hours worked for this record
-      hours[staffId].days[day] += record.total_minutes / 60;
-      hours[staffId].totalHours += record.total_minutes / 60;
-    });
-    
-    setDailyHours(hours);
-  };
 
   // Function to fetch system statistics
   const fetchSystemStats = async () => {
@@ -421,6 +620,14 @@ const Settings = () => {
       receipt_settings: receiptSettings,
       receipt_template: receiptTemplate,
       branding_settings: brandingSettings,
+      business_profile: businessProfile,
+      legal_info: legalInfo,
+      contact_info: contactInfo,
+      location_info: locationInfo,
+      menu_categories: menuCategories,
+      inventory_categories: inventoryCategories,
+      inventory_units: inventoryUnits,
+      supplier_settings: supplierSettings,
       ...overrides,
     };
     const { error } = await supabase.from('settings').upsert(upsertData, { onConflict: 'id' });
@@ -700,7 +907,8 @@ const Settings = () => {
       name: newMenuItem.name,
       category: newMenuItem.category,
       price: Number(newMenuItem.price),
-      description: newMenuItem.description || null
+      description: newMenuItem.description || null,
+      recipe: newMenuItem.category === 'Sundaes' && newMenuItem.recipe ? newMenuItem.recipe : null
     };
     
     const { error } = await supabase.from('menu_items').insert([menuItem]);
@@ -708,7 +916,7 @@ const Settings = () => {
     if (!error) {
       toast({ title: 'Menu Item Added', description: `${menuItem.name} added to ${menuItem.category}.` });
       setShowAddMenuItem(false);
-      setNewMenuItem({ name: '', category: 'Flavors', price: 0, description: '' });
+      setNewMenuItem({ name: '', category: 'Flavors', price: 0, description: '', recipe: null });
       
       // Refresh menu items
       const { data } = await supabase.from('menu_items').select('*');
@@ -727,7 +935,8 @@ const Settings = () => {
         name: currentMenuItem.name,
         category: currentMenuItem.category,
         price: Number(currentMenuItem.price),
-        description: currentMenuItem.description
+        description: currentMenuItem.description,
+        recipe: currentMenuItem.category === 'Sundaes' && currentMenuItem.recipe ? currentMenuItem.recipe : null
       })
       .eq('id', currentMenuItem.id);
     
@@ -764,6 +973,603 @@ const Settings = () => {
       setItemToDelete(null);
     } else {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  // Category management functions
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast({ title: 'Missing Category Name', description: 'Please enter a category name.', variant: 'destructive' });
+      return;
+    }
+    
+    if (menuCategories.includes(newCategoryName.trim())) {
+      toast({ title: 'Category Exists', description: 'This category already exists.', variant: 'destructive' });
+      return;
+    }
+    
+    const updatedCategories = [...menuCategories, newCategoryName.trim()];
+    setMenuCategories(updatedCategories);
+    
+    const error = await saveSettings({ menu_categories: updatedCategories });
+    if (!error) {
+      toast({ title: 'Category Added', description: `${newCategoryName} has been added to menu categories.` });
+      setNewCategoryName('');
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setMenuCategories(menuCategories); // Revert on error
+    }
+  };
+
+  const handleEditCategory = async (index: number) => {
+    if (!editingCategoryName.trim()) {
+      toast({ title: 'Missing Category Name', description: 'Please enter a category name.', variant: 'destructive' });
+      return;
+    }
+    
+    if (menuCategories.includes(editingCategoryName.trim()) && editingCategoryName.trim() !== menuCategories[index]) {
+      toast({ title: 'Category Exists', description: 'This category already exists.', variant: 'destructive' });
+      return;
+    }
+    
+    const oldCategoryName = menuCategories[index];
+    const updatedCategories = [...menuCategories];
+    updatedCategories[index] = editingCategoryName.trim();
+    setMenuCategories(updatedCategories);
+    
+    // Update menu items with old category name
+    const itemsToUpdate = menuItems.filter(item => item.category === oldCategoryName);
+    if (itemsToUpdate.length > 0) {
+      for (const item of itemsToUpdate) {
+        await supabase
+          .from('menu_items')
+          .update({ category: editingCategoryName.trim() })
+          .eq('id', item.id);
+      }
+      
+      // Refresh menu items
+      const { data } = await supabase.from('menu_items').select('*');
+      setMenuItems(data || []);
+    }
+    
+    const error = await saveSettings({ menu_categories: updatedCategories });
+    if (!error) {
+      toast({ title: 'Category Updated', description: `Category has been updated to ${editingCategoryName}.` });
+      setEditingCategoryIndex(null);
+      setEditingCategoryName('');
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setMenuCategories(menuCategories); // Revert on error
+    }
+  };
+
+  const handleDeleteCategory = async (index: number) => {
+    const categoryToDelete = menuCategories[index];
+    
+    // Check if any menu items use this category
+    const itemsUsingCategory = menuItems.filter(item => item.category === categoryToDelete);
+    if (itemsUsingCategory.length > 0) {
+      toast({ 
+        title: 'Cannot Delete Category', 
+        description: `This category is used by ${itemsUsingCategory.length} menu item(s). Please reassign or delete those items first.`,
+        variant: 'destructive' 
+      });
+      return;
+    }
+    
+    const updatedCategories = menuCategories.filter((_, i) => i !== index);
+    setMenuCategories(updatedCategories);
+    
+    const error = await saveSettings({ menu_categories: updatedCategories });
+    if (!error) {
+      toast({ title: 'Category Deleted', description: `${categoryToDelete} has been removed from menu categories.` });
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setMenuCategories(menuCategories); // Revert on error
+    }
+  };
+
+  // Inventory category management functions
+  const handleAddInventoryCategory = async () => {
+    if (!newInventoryCategoryName.trim()) {
+      toast({ title: 'Missing Category Name', description: 'Please enter a category name.', variant: 'destructive' });
+      return;
+    }
+    
+    if (inventoryCategories.includes(newInventoryCategoryName.trim())) {
+      toast({ title: 'Category Exists', description: 'This category already exists.', variant: 'destructive' });
+      return;
+    }
+    
+    const updatedCategories = [...inventoryCategories, newInventoryCategoryName.trim()];
+    setInventoryCategories(updatedCategories);
+    
+    const error = await saveSettings({ inventory_categories: updatedCategories });
+    if (!error) {
+      toast({ title: 'Category Added', description: `${newInventoryCategoryName} has been added to inventory categories.` });
+      setNewInventoryCategoryName('');
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setInventoryCategories(inventoryCategories); // Revert on error
+    }
+  };
+
+  const handleEditInventoryCategory = async (index: number) => {
+    if (!editingInventoryCategoryName.trim()) {
+      toast({ title: 'Missing Category Name', description: 'Please enter a category name.', variant: 'destructive' });
+      return;
+    }
+    
+    if (inventoryCategories.includes(editingInventoryCategoryName.trim()) && editingInventoryCategoryName.trim() !== inventoryCategories[index]) {
+      toast({ title: 'Category Exists', description: 'This category already exists.', variant: 'destructive' });
+      return;
+    }
+    
+    const oldCategoryName = inventoryCategories[index];
+    const updatedCategories = [...inventoryCategories];
+    updatedCategories[index] = editingInventoryCategoryName.trim();
+    setInventoryCategories(updatedCategories);
+    
+    // Update inventory items with old category name
+    try {
+      const { data: itemsToUpdate, error: fetchError } = await supabase
+        .from('inventory')
+        .select('id, category')
+        .eq('category', oldCategoryName);
+      
+      if (!fetchError && itemsToUpdate && itemsToUpdate.length > 0) {
+        for (const item of itemsToUpdate) {
+          await supabase
+            .from('inventory')
+            .update({ category: editingInventoryCategoryName.trim() })
+            .eq('id', item.id);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating inventory items:', err);
+    }
+    
+    const error = await saveSettings({ inventory_categories: updatedCategories });
+    if (!error) {
+      toast({ title: 'Category Updated', description: `Category has been updated to ${editingInventoryCategoryName}.` });
+      setEditingInventoryCategoryIndex(null);
+      setEditingInventoryCategoryName('');
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setInventoryCategories(inventoryCategories); // Revert on error
+    }
+  };
+
+  const handleDeleteInventoryCategory = async (index: number) => {
+    const categoryToDelete = inventoryCategories[index];
+    
+    // Check if any inventory items use this category
+    try {
+      const { data: itemsUsingCategory, error } = await supabase
+        .from('inventory')
+        .select('id, name')
+        .eq('category', categoryToDelete)
+        .eq('is_active', true);
+      
+      if (!error && itemsUsingCategory && itemsUsingCategory.length > 0) {
+        toast({ 
+          title: 'Cannot Delete Category', 
+          description: `This category is used by ${itemsUsingCategory.length} inventory item(s). Please reassign or delete those items first.`,
+          variant: 'destructive' 
+        });
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking category usage:', err);
+      toast({ title: 'Error', description: 'Failed to check category usage.', variant: 'destructive' });
+      return;
+    }
+    
+    const updatedCategories = inventoryCategories.filter((_, i) => i !== index);
+    setInventoryCategories(updatedCategories);
+    
+    const error = await saveSettings({ inventory_categories: updatedCategories });
+    if (!error) {
+      toast({ title: 'Category Deleted', description: `${categoryToDelete} has been removed from inventory categories.` });
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setInventoryCategories(inventoryCategories); // Revert on error
+    }
+  };
+
+  // Inventory units management functions
+  const handleAddInventoryUnit = async () => {
+    if (!newInventoryUnit.name.trim() || !newInventoryUnit.description.trim()) {
+      toast({ title: 'Missing Information', description: 'Please enter unit name and description.', variant: 'destructive' });
+      return;
+    }
+    
+    if (inventoryUnits.some(unit => unit.name.toLowerCase() === newInventoryUnit.name.trim().toLowerCase())) {
+      toast({ title: 'Unit Exists', description: 'This unit already exists.', variant: 'destructive' });
+      return;
+    }
+    
+    const updatedUnits = [...inventoryUnits, { 
+      name: newInventoryUnit.name.trim(), 
+      type: newInventoryUnit.type, 
+      description: newInventoryUnit.description.trim() 
+    }];
+    setInventoryUnits(updatedUnits);
+    
+    const error = await saveSettings({ inventory_units: updatedUnits });
+    if (!error) {
+      toast({ title: 'Unit Added', description: `${newInventoryUnit.name} has been added to inventory units.` });
+      setNewInventoryUnit({ name: '', type: 'count', description: '' });
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setInventoryUnits(inventoryUnits); // Revert on error
+    }
+  };
+
+  const handleEditInventoryUnit = async (index: number) => {
+    if (!editingInventoryUnit.name.trim() || !editingInventoryUnit.description.trim()) {
+      toast({ title: 'Missing Information', description: 'Please enter unit name and description.', variant: 'destructive' });
+      return;
+    }
+    
+    // Check if name already exists (excluding current unit)
+    if (inventoryUnits.some((unit, i) => i !== index && unit.name.toLowerCase() === editingInventoryUnit.name.trim().toLowerCase())) {
+      toast({ title: 'Unit Exists', description: 'This unit name already exists.', variant: 'destructive' });
+      return;
+    }
+    
+    const oldUnitName = inventoryUnits[index].name;
+    const updatedUnits = [...inventoryUnits];
+    updatedUnits[index] = {
+      name: editingInventoryUnit.name.trim(),
+      type: editingInventoryUnit.type,
+      description: editingInventoryUnit.description.trim()
+    };
+    setInventoryUnits(updatedUnits);
+    
+    // Update inventory items with old unit name
+    try {
+      const { data: itemsToUpdate, error: fetchError } = await supabase
+        .from('inventory')
+        .select('id, unit')
+        .eq('unit', oldUnitName);
+      
+      if (!fetchError && itemsToUpdate && itemsToUpdate.length > 0) {
+        for (const item of itemsToUpdate) {
+          await supabase
+            .from('inventory')
+            .update({ unit: editingInventoryUnit.name.trim() })
+            .eq('id', item.id);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating inventory items:', err);
+    }
+    
+    const error = await saveSettings({ inventory_units: updatedUnits });
+    if (!error) {
+      toast({ title: 'Unit Updated', description: `Unit has been updated to ${editingInventoryUnit.name}.` });
+      setEditingInventoryUnitIndex(null);
+      setEditingInventoryUnit({ name: '', type: 'count', description: '' });
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setInventoryUnits(inventoryUnits); // Revert on error
+    }
+  };
+
+  const handleDeleteInventoryUnit = async (index: number) => {
+    const unitToDelete = inventoryUnits[index];
+    
+    // Check if any inventory items use this unit
+    try {
+      const { data: itemsUsingUnit, error } = await supabase
+        .from('inventory')
+        .select('id, name')
+        .eq('unit', unitToDelete.name)
+        .eq('is_active', true);
+      
+      if (!error && itemsUsingUnit && itemsUsingUnit.length > 0) {
+        toast({ 
+          title: 'Cannot Delete Unit', 
+          description: `This unit is used by ${itemsUsingUnit.length} inventory item(s). Please reassign or delete those items first.`,
+          variant: 'destructive' 
+        });
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking unit usage:', err);
+      toast({ title: 'Error', description: 'Failed to check unit usage.', variant: 'destructive' });
+      return;
+    }
+    
+    const updatedUnits = inventoryUnits.filter((_, i) => i !== index);
+    setInventoryUnits(updatedUnits);
+    
+    const error = await saveSettings({ inventory_units: updatedUnits });
+    if (!error) {
+      toast({ title: 'Unit Deleted', description: `${unitToDelete.name} has been removed from inventory units.` });
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      setInventoryUnits(inventoryUnits); // Revert on error
+    }
+  };
+
+  // Simple Ingredient Picker for Sundaes
+  const IngredientPicker = ({ 
+    recipe, 
+    onRecipeChange 
+  }: {
+    recipe: SundaeIngredient[] | null;
+    onRecipeChange: (recipe: SundaeIngredient[]) => void;
+  }) => {
+    const ingredients = recipe || [];
+
+    const addIngredient = () => {
+      const newIngredients = [...ingredients, { name: '', quantity: 1, unit: 'g', category: '' }];
+      onRecipeChange(newIngredients);
+    };
+
+    const removeIngredient = (index: number) => {
+      const newIngredients = ingredients.filter((_, i) => i !== index);
+      onRecipeChange(newIngredients);
+    };
+
+    const updateIngredient = (index: number, field: keyof SundaeIngredient, value: any) => {
+      const newIngredients = [...ingredients];
+      newIngredients[index] = { ...newIngredients[index], [field]: value };
+      onRecipeChange(newIngredients);
+    };
+
+    // When an inventory item is selected, auto-populate unit and category
+    const handleIngredientSelect = (index: number, selectedValue: string) => {
+      const selectedItem = inventoryItems.find(item => item.name === selectedValue);
+      if (selectedItem) {
+        const newIngredients = [...ingredients];
+        newIngredients[index] = {
+          ...newIngredients[index],
+          name: selectedItem.name,
+          unit: selectedItem.unit,
+          category: selectedItem.category
+        };
+        onRecipeChange(newIngredients);
+      } else {
+        // If it's a custom value, just update the name
+        updateIngredient(index, 'name', selectedValue);
+      }
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <Label className="text-sm font-medium">Sundae Recipe</Label>
+          <Button type="button" variant="outline" size="sm" onClick={addIngredient}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Ingredient
+          </Button>
+        </div>
+        
+        {ingredients.length === 0 ? (
+          <div className="text-center py-6 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
+            <p>No ingredients added yet.</p>
+            <p className="text-sm">Click "Add Ingredient" to start building your sundae recipe.</p>
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-60 overflow-y-auto">
+            {ingredients.map((ingredient, index) => (
+              <div key={index} className="grid grid-cols-12 gap-2 items-center p-3 border rounded-lg bg-gray-50">
+                <div className="col-span-4">
+                  <Select
+                    value={ingredient.name}
+                    onValueChange={(value) => handleIngredientSelect(index, value)}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select ingredient" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {inventoryItems.map((item) => (
+                        <SelectItem key={item.id} value={item.name}>
+                          {item.name} ({item.available_quantity} {item.unit})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="Qty"
+                    value={ingredient.quantity || ''}
+                    onChange={(e) => updateIngredient(index, 'quantity', parseFloat(e.target.value) || 0)}
+                    className="h-9"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <div className="h-9 px-3 py-2 border rounded-md bg-gray-100 text-sm flex items-center">
+                    {ingredient.unit || 'Unit'}
+                  </div>
+                </div>
+                <div className="col-span-3">
+                  <div className="h-9 px-3 py-2 border rounded-md bg-gray-100 text-sm flex items-center">
+                    {ingredient.category || 'Category'}
+                  </div>
+                </div>
+                <div className="col-span-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeIngredient(index)}
+                    className="h-9 w-9 p-0 text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {ingredients.length > 0 && (
+          <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded">
+            <strong>{ingredients.length} ingredient(s)</strong> configured for this sundae.
+            <br />
+            <span className="text-xs">Unit and category are auto-filled from selected inventory items.</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Supplier management functions
+  const handleAddSupplier = async () => {
+    if (!newSupplier.name?.trim()) {
+      toast({
+        title: 'Missing Required Field',
+        description: 'Supplier name is required.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('suppliers').insert([{
+        ...newSupplier,
+        categories: newSupplier.categories || []
+      }]);
+
+      if (error) throw error;
+
+      // Refresh suppliers list
+      const { data } = await supabase.from('suppliers').select('*').order('name');
+      setSuppliers(data || []);
+
+      setNewSupplier({
+        name: '',
+        contact_person: '',
+        email: '',
+        phone: '',
+        business_type: 'local',
+        payment_terms: supplierSettings.default_payment_terms,
+        lead_time_days: supplierSettings.default_lead_time_days,
+        is_active: true,
+        is_preferred: false,
+        categories: [],
+        country: supplierSettings.default_country
+      });
+      setShowAddSupplier(false);
+
+      toast({ title: 'Supplier Added', description: `"${newSupplier.name}" has been added successfully.` });
+    } catch (error: any) {
+      toast({ title: 'Error', description: `Failed to add supplier: ${error.message}`, variant: 'destructive' });
+    }
+  };
+
+  const handleEditSupplier = async () => {
+    if (!currentSupplier || !currentSupplier.name?.trim()) {
+      toast({
+        title: 'Missing Required Field',
+        description: 'Supplier name is required.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('suppliers')
+        .update({
+          name: currentSupplier.name,
+          contact_person: currentSupplier.contact_person,
+          email: currentSupplier.email,
+          phone: currentSupplier.phone,
+          mobile: currentSupplier.mobile,
+          website: currentSupplier.website,
+          address_line1: currentSupplier.address_line1,
+          city: currentSupplier.city,
+          state: currentSupplier.state,
+          postal_code: currentSupplier.postal_code,
+          country: currentSupplier.country,
+          business_type: currentSupplier.business_type,
+          payment_terms: currentSupplier.payment_terms,
+          lead_time_days: currentSupplier.lead_time_days,
+          categories: currentSupplier.categories || [],
+          is_active: currentSupplier.is_active,
+          is_preferred: currentSupplier.is_preferred,
+          notes: currentSupplier.notes
+        })
+        .eq('id', currentSupplier.id);
+
+      if (error) throw error;
+
+      // Refresh suppliers list
+      const { data } = await supabase.from('suppliers').select('*').order('name');
+      setSuppliers(data || []);
+
+      setCurrentSupplier(null);
+      setShowEditSupplier(false);
+
+      toast({ title: 'Supplier Updated', description: `"${currentSupplier.name}" has been updated successfully.` });
+    } catch (error: any) {
+      toast({ title: 'Error', description: `Failed to update supplier: ${error.message}`, variant: 'destructive' });
+    }
+  };
+
+  const handleDeleteSupplier = async (supplierId: string) => {
+    try {
+      // Check if supplier is used in inventory
+      const { data: inventoryItems, error: checkError } = await supabase
+        .from('inventory')
+        .select('id, name')
+        .eq('supplier_id', supplierId)
+        .limit(1);
+
+      if (checkError) throw checkError;
+
+      if (inventoryItems && inventoryItems.length > 0) {
+        toast({
+          title: 'Cannot Delete Supplier',
+          description: 'This supplier is used by inventory items. Please reassign or remove those items first.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      const { error } = await supabase.from('suppliers').delete().eq('id', supplierId);
+      if (error) throw error;
+
+      // Refresh suppliers list
+      const { data } = await supabase.from('suppliers').select('*').order('name');
+      setSuppliers(data || []);
+
+      toast({ title: 'Supplier Deleted', description: 'Supplier has been removed successfully.' });
+    } catch (error: any) {
+      toast({ title: 'Error', description: `Failed to delete supplier: ${error.message}`, variant: 'destructive' });
+    }
+  };
+
+  const handleSaveSupplierSettings = async () => {
+    try {
+      const error = await saveSettings();
+      if (!error) {
+        toast({
+          title: 'Supplier Settings Updated',
+          description: 'Your supplier management settings have been saved.'
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: error.message,
+          variant: 'destructive'
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: `Failed to save supplier settings: ${error.message}`,
+        variant: 'destructive'
+      });
     }
   };
 
@@ -936,13 +1742,14 @@ const Settings = () => {
       </div>
 
       <Tabs defaultValue="system" className="w-full">
-        <TabsList className="grid w-full md:w-[900px] grid-cols-6">
+        <TabsList className="grid w-full md:w-[1000px] grid-cols-7">
           <TabsTrigger value="system">System</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           {isAdmin && <TabsTrigger value="business">Business</TabsTrigger>}
           {isAdmin && <TabsTrigger value="receipts">Receipts</TabsTrigger>}
           {isAdmin && <TabsTrigger value="staff">Staff</TabsTrigger>}
           {isAdmin && <TabsTrigger value="menu">Menu Items</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="inventory">Inventory</TabsTrigger>}
         </TabsList>
         
         <TabsContent value="system">
@@ -1214,6 +2021,53 @@ const Settings = () => {
                 </div>
               </div>
               
+              {/* Business Profile Section */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold border-b pb-2">Business Profile</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="legalName">Legal Business Name</Label>
+                    <Input
+                      id="legalName"
+                      value={businessProfile.legalBusinessName}
+                      onChange={(e) => setBusinessProfile({ ...businessProfile, legalBusinessName: e.target.value })}
+                      placeholder="Creamello Ice Cream Ltd."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tradingAs">Trading As</Label>
+                    <Input
+                      id="tradingAs"
+                      value={businessProfile.tradingAs}
+                      onChange={(e) => setBusinessProfile({ ...businessProfile, tradingAs: e.target.value })}
+                      placeholder="Creamello"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="businessType">Business Type</Label>
+                    <Select value={businessProfile.businessType} onValueChange={(v) => setBusinessProfile({ ...businessProfile, businessType: v })}>
+                      <SelectTrigger id="businessType">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sole_proprietorship">Sole Proprietorship</SelectItem>
+                        <SelectItem value="partnership">Partnership</SelectItem>
+                        <SelectItem value="corporation">Corporation</SelectItem>
+                        <SelectItem value="llc">LLC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="industry">Industry</Label>
+                    <Input
+                      id="industry"
+                      value={businessProfile.industryType}
+                      onChange={(e) => setBusinessProfile({ ...businessProfile, industryType: e.target.value })}
+                      placeholder="Food Service"
+                    />
+                  </div>
+                </div>
+              </div>
             </CardContent>
             <CardFooter>
               <Button onClick={handleSaveSystem}>Save Settings</Button>
@@ -1788,117 +2642,7 @@ const Settings = () => {
                   </table>
                 </div>
                 
-                {/* Staff Work Hours Section */}
-                <div className="mt-8">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="text-lg font-semibold">Staff Work Hours</div>
-                    <div className="flex items-center space-x-2">
-                      <Label htmlFor="week-select">Week:</Label>
-                      <Input
-                        id="week-select"
-                        type="date"
-                        value={selectedWeek}
-                        onChange={(e) => setSelectedWeek(e.target.value)}
-                        className="w-40"
-                      />
-                    </div>
-                  </div>
-                  
-                  {/* Daily Hours Summary */}
-                  <div className="space-y-4">
-                    {Object.keys(dailyHours).length > 0 ? (
-                      Object.entries(dailyHours).map(([staffId, data]: [string, any]) => (
-                        <Card key={staffId} className="overflow-hidden">
-                          <CardHeader className="py-3">
-                            <div className="flex justify-between items-center">
-                              <CardTitle className="text-base">{data.name}</CardTitle>
-                              <div className="text-sm font-medium text-muted-foreground">
-                                Total: {data.totalHours.toFixed(1)} hours
-                              </div>
-                            </div>
-                          </CardHeader>
-                          <CardContent className="p-0">
-                            <div className="overflow-x-auto">
-                              <table className="w-full divide-y divide-muted">
-                                <thead className="bg-muted">
-                                  <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-medium">Date</th>
-                                    <th className="px-4 py-2 text-right text-xs font-medium">Hours Worked</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-muted">
-                                  {Object.entries(data.days).map(([day, hours]: [string, any]) => (
-                                    <tr key={day}>
-                                      <td className="px-4 py-2 text-sm">
-                                        {format(parseISO(day), 'MMM dd, yyyy (EEE)')}
-                                      </td>
-                                      <td className="px-4 py-2 text-sm text-right font-medium">
-                                        {Number(hours).toFixed(1)} h
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))
-                    ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Clock className="mx-auto h-12 w-12 opacity-20 mb-2" />
-                        <p>No work hours data available for the selected week.</p>
-                        <p className="text-sm">Work hours are tracked automatically when staff login and logout.</p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Recent Attendance Records */}
-                  <div className="mt-6">
-                    <div className="text-md font-semibold mb-3">Recent Attendance Records</div>
-                    <div className="overflow-x-auto rounded-lg border border-muted">
-                      <table className="min-w-full divide-y divide-muted bg-white">
-                        <thead className="bg-muted">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Staff Name</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Login Time</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Logout Time</th>
-                            <th className="px-4 py-2 text-right text-xs font-medium">Hours Worked</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {staffAttendance.length > 0 ? (
-                            staffAttendance.map((record) => (
-                              <tr key={record.id} className="even:bg-muted/50">
-                                <td className="px-4 py-2">{record.staff_name}</td>
-                                <td className="px-4 py-2">
-                                  {format(new Date(record.login_time), 'MMM dd, yyyy HH:mm')}
-                                </td>
-                                <td className="px-4 py-2">
-                                  {record.logout_time 
-                                    ? format(new Date(record.logout_time), 'MMM dd, yyyy HH:mm')
-                                    : <span className="text-amber-500">Still Active</span>
-                                  }
-                                </td>
-                                <td className="px-4 py-2 text-right">
-                                  {record.total_minutes 
-                                    ? `${(record.total_minutes / 60).toFixed(1)} h`
-                                    : '-'
-                                  }
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={4} className="px-4 py-4 text-center text-muted-foreground">
-                                No attendance records found for the selected week.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
+
               </CardContent>
             </Card>
             <Dialog open={showAddStaff} onOpenChange={setShowAddStaff}>
@@ -2026,8 +2770,31 @@ const Settings = () => {
                 <CardTitle>Menu Items Management</CardTitle>
                 <CardDescription>View, add, edit, and remove menu items available for ordering.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="flex justify-between items-center mb-4">
+              <CardContent className="space-y-6">
+                {/* Category Management Section */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">Menu Categories</h3>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowCategoryManager(true)}
+                    >
+                                             <SettingsIcon className="mr-2 h-4 w-4" /> Manage Categories
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {menuCategories.map((category, index) => (
+                      <Badge key={index} variant="secondary" className="px-3 py-1">
+                        {category}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="flex justify-between items-center">
                   <div className="text-lg font-semibold">All Menu Items</div>
                   <Button onClick={() => setShowAddMenuItem(true)}>
                     <Plus className="mr-2 h-4 w-4" /> Add Menu Item
@@ -2098,19 +2865,34 @@ const Settings = () => {
                   </div>
                   <div>
                     <Label htmlFor="item-category">Category</Label>
-                    <Select 
-                      value={newMenuItem.category} 
-                      onValueChange={v => setNewMenuItem({ ...newMenuItem, category: v })}
-                    >
-                      <SelectTrigger id="item-category">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MENU_CATEGORIES.map(category => (
-                          <SelectItem key={category} value={category}>{category}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex gap-2">
+                      <Select 
+                        value={newMenuItem.category} 
+                        onValueChange={v => setNewMenuItem({ 
+                          ...newMenuItem, 
+                          category: v,
+                          recipe: v === 'Sundaes' ? newMenuItem.recipe : null 
+                        })}
+                      >
+                        <SelectTrigger id="item-category">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {menuCategories.map(category => (
+                            <SelectItem key={category} value={category}>{category}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button 
+                        type="button"
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setShowCategoryManager(true)}
+                        title="Manage Categories"
+                      >
+                        <SettingsIcon className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                   <div>
                     <Label htmlFor="item-price">Price</Label>
@@ -2131,6 +2913,16 @@ const Settings = () => {
                       onChange={e => setNewMenuItem({ ...newMenuItem, description: e.target.value })} 
                     />
                   </div>
+                  
+                  {/* Ingredient Picker - only show for Sundaes category */}
+                  {newMenuItem.category === 'Sundaes' && (
+                    <div className="border-t pt-4">
+                      <IngredientPicker
+                        recipe={newMenuItem.recipe}
+                        onRecipeChange={(recipe) => setNewMenuItem({ ...newMenuItem, recipe })}
+                      />
+                    </div>
+                  )}
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowAddMenuItem(false)}>Cancel</Button>
@@ -2157,19 +2949,34 @@ const Settings = () => {
                     </div>
                     <div>
                       <Label htmlFor="edit-item-category">Category</Label>
-                      <Select 
-                        value={currentMenuItem.category} 
-                        onValueChange={v => setCurrentMenuItem({ ...currentMenuItem, category: v })}
-                      >
-                        <SelectTrigger id="edit-item-category">
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {MENU_CATEGORIES.map(category => (
-                            <SelectItem key={category} value={category}>{category}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex gap-2">
+                        <Select 
+                          value={currentMenuItem.category} 
+                          onValueChange={v => setCurrentMenuItem({ 
+                            ...currentMenuItem, 
+                            category: v,
+                            recipe: v === 'Sundaes' ? currentMenuItem.recipe : null 
+                          })}
+                        >
+                          <SelectTrigger id="edit-item-category">
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {menuCategories.map(category => (
+                              <SelectItem key={category} value={category}>{category}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button 
+                          type="button"
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => setShowCategoryManager(true)}
+                          title="Manage Categories"
+                        >
+                          <SettingsIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                     <div>
                       <Label htmlFor="edit-item-price">Price</Label>
@@ -2190,6 +2997,16 @@ const Settings = () => {
                         onChange={e => setCurrentMenuItem({ ...currentMenuItem, description: e.target.value })} 
                       />
                     </div>
+                    
+                    {/* Ingredient Picker - only show for Sundaes category */}
+                    {currentMenuItem.category === 'Sundaes' && (
+                      <div className="border-t pt-4">
+                        <IngredientPicker
+                          recipe={currentMenuItem.recipe}
+                          onRecipeChange={(recipe) => setCurrentMenuItem({ ...currentMenuItem, recipe })}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
                 <DialogFooter>
@@ -2211,6 +3028,826 @@ const Settings = () => {
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
                   <Button variant="destructive" onClick={confirmDeleteMenuItem}>Delete</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            {/* Category Manager Dialog */}
+            <Dialog open={showCategoryManager} onOpenChange={setShowCategoryManager}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Manage Menu Categories</DialogTitle>
+                  <DialogDescription>
+                    Add, edit, or remove menu categories for your items.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {/* Add New Category */}
+                  <div className="space-y-2">
+                    <Label htmlFor="new-category">Add New Category</Label>
+                    <div className="flex gap-2">
+                      <Input 
+                        id="new-category"
+                        placeholder="Category name"
+                        value={newCategoryName}
+                        onChange={e => setNewCategoryName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
+                      />
+                      <Button onClick={handleAddCategory} size="sm">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <Separator />
+                  
+                  {/* Existing Categories */}
+                  <div className="space-y-2">
+                    <Label>Existing Categories</Label>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {menuCategories.map((category, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 border rounded">
+                          {editingCategoryIndex === index ? (
+                            <div className="flex gap-2 flex-1">
+                              <Input 
+                                value={editingCategoryName}
+                                onChange={e => setEditingCategoryName(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleEditCategory(index);
+                                  if (e.key === 'Escape') {
+                                    setEditingCategoryIndex(null);
+                                    setEditingCategoryName('');
+                                  }
+                                }}
+                                autoFocus
+                              />
+                              <Button onClick={() => handleEditCategory(index)} size="sm">
+                                Save
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  setEditingCategoryIndex(null);
+                                  setEditingCategoryName('');
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="flex-1">{category}</span>
+                              <div className="flex gap-1">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingCategoryIndex(index);
+                                    setEditingCategoryName(category);
+                                  }}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleDeleteCategory(index)}
+                                >
+                                  <Trash2 className="h-3 w-3 text-destructive" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={() => setShowCategoryManager(false)}>
+                    Done
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+        )}
+
+        {isAdmin && (
+          <TabsContent value="inventory">
+            <div className="space-y-6">
+              {/* Inventory Categories Management */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Inventory Categories</CardTitle>
+                  <CardDescription>
+                    Configure categories for organizing your inventory items.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">Current Categories</h3>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowInventoryCategoryManager(true)}
+                    >
+                      <SettingsIcon className="mr-2 h-4 w-4" /> Manage Categories
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {inventoryCategories.map((category, index) => (
+                      <Badge key={index} variant="secondary" className="px-3 py-1 justify-center">
+                        {category}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Inventory Units Management */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Measurement Units</CardTitle>
+                  <CardDescription>
+                    Configure units of measurement for your inventory items.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">Current Units</h3>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowInventoryUnitManager(true)}
+                    >
+                      <SettingsIcon className="mr-2 h-4 w-4" /> Manage Units
+                    </Button>
+                  </div>
+                  <div className="space-y-4">
+                    {['weight', 'volume', 'count', 'container'].map(type => (
+                      <div key={type} className="space-y-2">
+                        <h4 className="font-medium capitalize text-sm text-muted-foreground">{type} Units</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {inventoryUnits.filter(unit => unit.type === type).map((unit, index) => (
+                            <Badge key={index} variant="outline" className="px-3 py-1">
+                              <span className="font-medium">{unit.name}</span>
+                              <span className="ml-2 text-muted-foreground">({unit.description})</span>
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Inventory Category Manager Dialog */}
+            <Dialog open={showInventoryCategoryManager} onOpenChange={setShowInventoryCategoryManager}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Manage Inventory Categories</DialogTitle>
+                  <DialogDescription>
+                    Add, edit, or remove categories for organizing inventory items.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {/* Add New Category */}
+                  <div className="space-y-2">
+                    <Label htmlFor="new-inventory-category">Add New Category</Label>
+                    <div className="flex gap-2">
+                      <Input 
+                        id="new-inventory-category"
+                        placeholder="Category name"
+                        value={newInventoryCategoryName}
+                        onChange={e => setNewInventoryCategoryName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleAddInventoryCategory()}
+                      />
+                      <Button onClick={handleAddInventoryCategory} size="sm">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <Separator />
+                  
+                  {/* Existing Categories */}
+                  <div className="space-y-2">
+                    <Label>Existing Categories</Label>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {inventoryCategories.map((category, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 border rounded">
+                          {editingInventoryCategoryIndex === index ? (
+                            <div className="flex gap-2 flex-1">
+                              <Input 
+                                value={editingInventoryCategoryName}
+                                onChange={e => setEditingInventoryCategoryName(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleEditInventoryCategory(index);
+                                  if (e.key === 'Escape') {
+                                    setEditingInventoryCategoryIndex(null);
+                                    setEditingInventoryCategoryName('');
+                                  }
+                                }}
+                                autoFocus
+                              />
+                              <Button onClick={() => handleEditInventoryCategory(index)} size="sm">
+                                Save
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  setEditingInventoryCategoryIndex(null);
+                                  setEditingInventoryCategoryName('');
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="flex-1">{category}</span>
+                              <div className="flex gap-1">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingInventoryCategoryIndex(index);
+                                    setEditingInventoryCategoryName(category);
+                                  }}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleDeleteInventoryCategory(index)}
+                                >
+                                  <Trash2 className="h-3 w-3 text-destructive" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={() => setShowInventoryCategoryManager(false)}>
+                    Done
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Inventory Units Manager Dialog */}
+            <Dialog open={showInventoryUnitManager} onOpenChange={setShowInventoryUnitManager}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Manage Measurement Units</DialogTitle>
+                  <DialogDescription>
+                    Add, edit, or remove units of measurement for inventory items.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {/* Add New Unit */}
+                  <div className="space-y-3">
+                    <Label>Add New Unit</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label htmlFor="new-unit-name" className="text-sm">Unit Name</Label>
+                        <Input 
+                          id="new-unit-name"
+                          placeholder="e.g., tons"
+                          value={newInventoryUnit.name}
+                          onChange={e => setNewInventoryUnit({ ...newInventoryUnit, name: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="new-unit-type" className="text-sm">Type</Label>
+                        <Select 
+                          value={newInventoryUnit.type} 
+                          onValueChange={v => setNewInventoryUnit({ ...newInventoryUnit, type: v as any })}
+                        >
+                          <SelectTrigger id="new-unit-type">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="weight">Weight</SelectItem>
+                            <SelectItem value="volume">Volume</SelectItem>
+                            <SelectItem value="count">Count</SelectItem>
+                            <SelectItem value="container">Container</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="new-unit-description" className="text-sm">Description</Label>
+                      <Input 
+                        id="new-unit-description"
+                        placeholder="e.g., Metric tons"
+                        value={newInventoryUnit.description}
+                        onChange={e => setNewInventoryUnit({ ...newInventoryUnit, description: e.target.value })}
+                        onKeyDown={e => e.key === 'Enter' && handleAddInventoryUnit()}
+                      />
+                    </div>
+                    <Button onClick={handleAddInventoryUnit} size="sm" className="w-full">
+                      <Plus className="mr-2 h-4 w-4" /> Add Unit
+                    </Button>
+                  </div>
+                  
+                  <Separator />
+                  
+                  {/* Existing Units */}
+                  <div className="space-y-2">
+                    <Label>Existing Units</Label>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {inventoryUnits.map((unit, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 border rounded">
+                          {editingInventoryUnitIndex === index ? (
+                            <div className="space-y-2 flex-1">
+                              <div className="grid grid-cols-2 gap-2">
+                                <Input 
+                                  placeholder="Unit name"
+                                  value={editingInventoryUnit.name}
+                                  onChange={e => setEditingInventoryUnit({ ...editingInventoryUnit, name: e.target.value })}
+                                />
+                                <Select 
+                                  value={editingInventoryUnit.type} 
+                                  onValueChange={v => setEditingInventoryUnit({ ...editingInventoryUnit, type: v as any })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="weight">Weight</SelectItem>
+                                    <SelectItem value="volume">Volume</SelectItem>
+                                    <SelectItem value="count">Count</SelectItem>
+                                    <SelectItem value="container">Container</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <Input 
+                                placeholder="Description"
+                                value={editingInventoryUnit.description}
+                                onChange={e => setEditingInventoryUnit({ ...editingInventoryUnit, description: e.target.value })}
+                              />
+                              <div className="flex gap-2">
+                                <Button onClick={() => handleEditInventoryUnit(index)} size="sm">
+                                  Save
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingInventoryUnitIndex(null);
+                                    setEditingInventoryUnit({ name: '', type: 'count', description: '' });
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex-1">
+                                <div className="font-medium">{unit.name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {unit.description} • {unit.type}
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingInventoryUnitIndex(index);
+                                    setEditingInventoryUnit(unit);
+                                  }}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleDeleteInventoryUnit(index)}
+                                >
+                                  <Trash2 className="h-3 w-3 text-destructive" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={() => setShowInventoryUnitManager(false)}>
+                    Done
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Supplier Management Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Supplier Management</CardTitle>
+                <CardDescription>
+                  Manage your suppliers and supplier configuration settings.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                
+                {/* Supplier Settings Section */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Supplier Settings</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="default_payment_terms">Default Payment Terms</Label>
+                      <Select 
+                        value={supplierSettings.default_payment_terms} 
+                        onValueChange={v => setSupplierSettings({ ...supplierSettings, default_payment_terms: v })}
+                      >
+                        <SelectTrigger id="default_payment_terms">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cod">Cash on Delivery</SelectItem>
+                          <SelectItem value="net15">Net 15 Days</SelectItem>
+                          <SelectItem value="net30">Net 30 Days</SelectItem>
+                          <SelectItem value="net60">Net 60 Days</SelectItem>
+                          <SelectItem value="prepaid">Prepaid</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="default_lead_time">Default Lead Time (Days)</Label>
+                      <Input
+                        id="default_lead_time"
+                        type="number"
+                        min="1"
+                        value={supplierSettings.default_lead_time_days}
+                        onChange={e => setSupplierSettings({ ...supplierSettings, default_lead_time_days: Number(e.target.value) })}
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="supplier_code_prefix">Supplier Code Prefix</Label>
+                      <Input
+                        id="supplier_code_prefix"
+                        value={supplierSettings.supplier_code_prefix}
+                        onChange={e => setSupplierSettings({ ...supplierSettings, supplier_code_prefix: e.target.value })}
+                        placeholder="SUP"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="default_country">Default Country</Label>
+                      <Input
+                        id="default_country"
+                        value={supplierSettings.default_country}
+                        onChange={e => setSupplierSettings({ ...supplierSettings, default_country: e.target.value })}
+                        placeholder="Ghana"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="auto_generate_codes"
+                      checked={supplierSettings.auto_generate_supplier_codes}
+                      onChange={e => setSupplierSettings({ ...supplierSettings, auto_generate_supplier_codes: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <Label htmlFor="auto_generate_codes">Auto-generate supplier codes</Label>
+                  </div>
+                  
+                  <Button onClick={handleSaveSupplierSettings} className="w-full md:w-auto">
+                    Save Supplier Settings
+                  </Button>
+                </div>
+
+                {/* Suppliers List Section */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold border-b pb-2">Suppliers</h3>
+                    <Button onClick={() => setShowAddSupplier(true)}>
+                      <Plus className="mr-2 h-4 w-4" /> Add Supplier
+                    </Button>
+                  </div>
+                  
+                  <div className="grid gap-4">
+                    {suppliers.map((supplier) => (
+                      <div key={supplier.id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold">{supplier.name}</h4>
+                              <Badge variant="outline">{supplier.code}</Badge>
+                              {supplier.is_preferred && (
+                                <Badge className="bg-yellow-100 text-yellow-800">Preferred</Badge>
+                              )}
+                              {!supplier.is_active && (
+                                <Badge variant="destructive">Inactive</Badge>
+                              )}
+                            </div>
+                            <div className="text-sm text-muted-foreground space-y-1">
+                              {supplier.contact_person && <div>Contact: {supplier.contact_person}</div>}
+                              {supplier.phone && <div>Phone: {supplier.phone}</div>}
+                              {supplier.email && <div>Email: {supplier.email}</div>}
+                              {supplier.business_type && <div>Type: {supplier.business_type}</div>}
+                              {supplier.payment_terms && <div>Payment: {supplier.payment_terms}</div>}
+                              {supplier.lead_time_days && <div>Lead Time: {supplier.lead_time_days} days</div>}
+                            </div>
+                            {supplier.categories && supplier.categories.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {supplier.categories.map((category, idx) => (
+                                  <Badge key={idx} variant="secondary" className="text-xs">
+                                    {category}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                setCurrentSupplier(supplier);
+                                setShowEditSupplier(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleDeleteSupplier(supplier.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {suppliers.length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No suppliers configured yet. Add your first supplier to get started.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Add Supplier Dialog */}
+            <Dialog open={showAddSupplier} onOpenChange={setShowAddSupplier}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Add New Supplier</DialogTitle>
+                  <DialogDescription>
+                    Add a new supplier to your database.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="supplier_name">Supplier Name *</Label>
+                      <Input
+                        id="supplier_name"
+                        value={newSupplier.name}
+                        onChange={e => setNewSupplier({ ...newSupplier, name: e.target.value })}
+                        placeholder="Enter supplier name"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contact_person">Contact Person</Label>
+                      <Input
+                        id="contact_person"
+                        value={newSupplier.contact_person}
+                        onChange={e => setNewSupplier({ ...newSupplier, contact_person: e.target.value })}
+                        placeholder="Contact person name"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="supplier_email">Email</Label>
+                      <Input
+                        id="supplier_email"
+                        type="email"
+                        value={newSupplier.email}
+                        onChange={e => setNewSupplier({ ...newSupplier, email: e.target.value })}
+                        placeholder="supplier@example.com"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="supplier_phone">Phone</Label>
+                      <Input
+                        id="supplier_phone"
+                        value={newSupplier.phone}
+                        onChange={e => setNewSupplier({ ...newSupplier, phone: e.target.value })}
+                        placeholder="Phone number"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="business_type">Business Type</Label>
+                      <Select 
+                        value={newSupplier.business_type} 
+                        onValueChange={v => setNewSupplier({ ...newSupplier, business_type: v })}
+                      >
+                        <SelectTrigger id="business_type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="local">Local</SelectItem>
+                          <SelectItem value="wholesaler">Wholesaler</SelectItem>
+                          <SelectItem value="manufacturer">Manufacturer</SelectItem>
+                          <SelectItem value="distributor">Distributor</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="payment_terms">Payment Terms</Label>
+                      <Select 
+                        value={newSupplier.payment_terms} 
+                        onValueChange={v => setNewSupplier({ ...newSupplier, payment_terms: v })}
+                      >
+                        <SelectTrigger id="payment_terms">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cod">Cash on Delivery</SelectItem>
+                          <SelectItem value="net15">Net 15 Days</SelectItem>
+                          <SelectItem value="net30">Net 30 Days</SelectItem>
+                          <SelectItem value="net60">Net 60 Days</SelectItem>
+                          <SelectItem value="prepaid">Prepaid</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="is_preferred"
+                        checked={newSupplier.is_preferred}
+                        onChange={e => setNewSupplier({ ...newSupplier, is_preferred: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="is_preferred">Preferred Supplier</Label>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="is_active"
+                        checked={newSupplier.is_active}
+                        onChange={e => setNewSupplier({ ...newSupplier, is_active: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="is_active">Active</Label>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAddSupplier(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddSupplier}>
+                    Add Supplier
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Edit Supplier Dialog */}
+            <Dialog open={showEditSupplier} onOpenChange={setShowEditSupplier}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Edit Supplier</DialogTitle>
+                  <DialogDescription>
+                    Update supplier information.
+                  </DialogDescription>
+                </DialogHeader>
+                {currentSupplier && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_supplier_name">Supplier Name *</Label>
+                        <Input
+                          id="edit_supplier_name"
+                          value={currentSupplier.name}
+                          onChange={e => setCurrentSupplier({ ...currentSupplier, name: e.target.value })}
+                          placeholder="Enter supplier name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_contact_person">Contact Person</Label>
+                        <Input
+                          id="edit_contact_person"
+                          value={currentSupplier.contact_person || ''}
+                          onChange={e => setCurrentSupplier({ ...currentSupplier, contact_person: e.target.value })}
+                          placeholder="Contact person name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_supplier_email">Email</Label>
+                        <Input
+                          id="edit_supplier_email"
+                          type="email"
+                          value={currentSupplier.email || ''}
+                          onChange={e => setCurrentSupplier({ ...currentSupplier, email: e.target.value })}
+                          placeholder="supplier@example.com"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_supplier_phone">Phone</Label>
+                        <Input
+                          id="edit_supplier_phone"
+                          value={currentSupplier.phone || ''}
+                          onChange={e => setCurrentSupplier({ ...currentSupplier, phone: e.target.value })}
+                          placeholder="Phone number"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_business_type">Business Type</Label>
+                        <Select 
+                          value={currentSupplier.business_type || 'local'} 
+                          onValueChange={v => setCurrentSupplier({ ...currentSupplier, business_type: v })}
+                        >
+                          <SelectTrigger id="edit_business_type">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="local">Local</SelectItem>
+                            <SelectItem value="wholesaler">Wholesaler</SelectItem>
+                            <SelectItem value="manufacturer">Manufacturer</SelectItem>
+                            <SelectItem value="distributor">Distributor</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit_payment_terms">Payment Terms</Label>
+                        <Select 
+                          value={currentSupplier.payment_terms || 'net30'} 
+                          onValueChange={v => setCurrentSupplier({ ...currentSupplier, payment_terms: v })}
+                        >
+                          <SelectTrigger id="edit_payment_terms">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="cod">Cash on Delivery</SelectItem>
+                            <SelectItem value="net15">Net 15 Days</SelectItem>
+                            <SelectItem value="net30">Net 30 Days</SelectItem>
+                            <SelectItem value="net60">Net 60 Days</SelectItem>
+                            <SelectItem value="prepaid">Prepaid</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center space-x-4">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="edit_is_preferred"
+                          checked={currentSupplier.is_preferred}
+                          onChange={e => setCurrentSupplier({ ...currentSupplier, is_preferred: e.target.checked })}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <Label htmlFor="edit_is_preferred">Preferred Supplier</Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="edit_is_active"
+                          checked={currentSupplier.is_active}
+                          onChange={e => setCurrentSupplier({ ...currentSupplier, is_active: e.target.checked })}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <Label htmlFor="edit_is_active">Active</Label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowEditSupplier(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleEditSupplier}>
+                    Update Supplier
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

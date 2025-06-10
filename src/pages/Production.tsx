@@ -922,75 +922,75 @@ const Production = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="category">Category *</Label>
-                  <Select
-                    value={newBatch.category}
-                    onValueChange={(category) => {
-                      setNewBatch({ 
-                        ...newBatch, 
-                        category, 
+              <Select
+                value={newBatch.category}
+                onValueChange={(category) => {
+                  setNewBatch({ 
+                    ...newBatch, 
+                    category, 
                         product_name: '',
-                        unit: getSuggestedUnit(category)
-                      });
-                    }}
-                  >
+                    unit: getSuggestedUnit(category)
+                  });
+                }}
+              >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category} value={category}>{category}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category} value={category}>{category}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="product_name">Product Name *</Label>
-                  <Select
-                    value={newBatch.product_name}
+              <Select
+                value={newBatch.product_name}
                     onValueChange={(name) => setNewBatch({ ...newBatch, product_name: name })}
                     disabled={!newBatch.category}
-                  >
+              >
                     <SelectTrigger>
-                      <SelectValue placeholder={!newBatch.category ? "Select a category first" : "Select a product"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {filteredProductNames.map((product) => (
-                        <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <SelectValue placeholder={!newBatch.category ? "Select a category first" : "Select a product"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {filteredProductNames.map((product) => (
+                    <SelectItem key={product.name} value={product.name}>{product.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="quantity">Quantity *</Label>
-                  <Input
-                    type="number"
+              <Input
+                type="number"
                     step="0.01"
                     value={newBatch.quantity || ''}
                     onChange={(e) => setNewBatch({ ...newBatch, quantity: parseFloat(e.target.value) || 0 })}
                     placeholder="0.00"
-                  />
-                </div>
+              />
+            </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="unit">Unit *</Label>
-                  <Select
-                    value={newBatch.unit}
-                    onValueChange={(unit) => setNewBatch({ ...newBatch, unit })}
-                  >
+              <Select
+                value={newBatch.unit}
+                onValueChange={(unit) => setNewBatch({ ...newBatch, unit })}
+              >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                      <SelectItem value="L">Liters (L)</SelectItem>
-                      <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                      <SelectItem value="g">Grams (g)</SelectItem>
-                      <SelectItem value="ml">Milliliters (ml)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <SelectValue placeholder="Select a unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                  <SelectItem value="L">Liters (L)</SelectItem>
+                  <SelectItem value="pcs">Pieces (pcs)</SelectItem>
+                  <SelectItem value="g">Grams (g)</SelectItem>
+                  <SelectItem value="ml">Milliliters (ml)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="production_date">Production Date *</Label>
@@ -1003,37 +1003,37 @@ const Production = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="status">Status</Label>
-                  <Select
-                    value={newBatch.status}
+              <Select
+                value={newBatch.status}
                     onValueChange={(value) => setNewBatch({ ...newBatch, status: value as any })}
-                  >
+              >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="planned">Planned</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planned">Planned</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="notes">Notes</Label>
-                <Textarea
-                  value={newBatch.notes}
-                  onChange={(e) => setNewBatch({ ...newBatch, notes: e.target.value })}
+              <Textarea
+                value={newBatch.notes}
+                onChange={(e) => setNewBatch({ ...newBatch, notes: e.target.value })}
                   rows={2}
                   placeholder="Optional production notes..."
-                />
-              </div>
+              />
             </div>
+          </div>
 
             {/* Ingredient Selection */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900 border-b pb-2">Ingredients & Materials</h3>
-                <Button
+            <Button
                   type="button"
                   variant="outline"
                   onClick={() => setShowIngredientSelection(!showIngredientSelection)}
@@ -1125,7 +1125,7 @@ const Production = () => {
 
           <DialogFooter className="flex gap-2 pt-4 border-t">
             <Button variant="outline" onClick={() => {
-              setDialogOpen(false);
+                  setDialogOpen(false);
               setShowIngredientSelection(false);
               setSelectedIngredients([]);
             }}>

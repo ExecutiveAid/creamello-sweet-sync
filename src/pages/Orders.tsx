@@ -18,6 +18,8 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import Receipt, { ReceiptTemplate, ReceiptOrder } from '@/components/Receipt';
 import { printReceipt } from '@/utils/receiptPrinter';
+import { SundaeDeductionService } from '@/services/sundaeDeductionService';
+import { isSundae } from '@/config/sundaeRecipes';
 
 // Types for our ice cream ordering system
 interface IceCreamFlavor {
@@ -120,8 +122,8 @@ const staffMembers: Staff[] = [
   { id: "staff4", name: "David Osei", role: "manager" },
 ];
 
-// 1. Define the new menu structure
-const MENU_CATEGORIES = [
+// Default menu categories (will be loaded from settings)
+const DEFAULT_MENU_CATEGORIES = [
   'Flavors',
   'Toppings',
   'Waffles & Pancakes',
@@ -136,7 +138,8 @@ const PAYMENT_METHODS = ['Cash', 'Card', 'Mobile Money'];
 
 const Orders = () => {
   // All hooks must be declared here, inside the component:
-  const [activeCategory, setActiveCategory] = useState(MENU_CATEGORIES[0]);
+  const [menuCategories, setMenuCategories] = useState<string[]>(DEFAULT_MENU_CATEGORIES);
+  const [activeCategory, setActiveCategory] = useState(DEFAULT_MENU_CATEGORIES[0]);
   const [cart, setCart] = useState([]); // { id, name, price, quantity }
   const [orderTotal, setOrderTotal] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
@@ -235,20 +238,46 @@ const Orders = () => {
     fetchStaff();
   }, []);
 
-  // Load receipt settings from database
+  // Load receipt settings and menu categories from database
   useEffect(() => {
-    const fetchReceiptSettings = async () => {
+    const fetchSettings = async () => {
       const { data, error } = await supabase.from('settings').select('*').limit(1).single();
       if (data) {
         setReceiptTemplate(data.receipt_template || receiptTemplate);
         setReceiptSettings(data.receipt_settings || receiptSettings);
+        
+        // Load menu categories
+        const categories = data.menu_categories || DEFAULT_MENU_CATEGORIES;
+        setMenuCategories(categories);
+        
+        // Update active category if current one doesn't exist
+        if (!categories.includes(activeCategory)) {
+          setActiveCategory(categories[0] || DEFAULT_MENU_CATEGORIES[0]);
+        }
       }
     };
-    fetchReceiptSettings();
+    fetchSettings();
   }, []);
 
   // Cart logic
-  const addToCart = (item) => {
+  const addToCart = async (item) => {
+    // Check sundae availability before adding to cart
+    if (item.category === 'Sundaes' && isSundae(item.name)) {
+      const existing = cart.find(ci => ci.id === item.id);
+      const newQuantity = existing ? existing.quantity + 1 : 1;
+      
+      const availability = await SundaeDeductionService.checkSundaeAvailability(item.name, newQuantity);
+      
+      if (!availability.available) {
+        toast({
+          title: "Sundae Unavailable",
+          description: `Cannot add ${item.name}: ${availability.reason}`,
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+    
     setCart(prev => {
       const found = prev.find(ci => ci.id === item.id);
       if (found) {
@@ -549,7 +578,7 @@ const Orders = () => {
         <TabsContent value="create" className="space-y-4 pt-4">
           {/* Category Tabs */}
           <div className="flex gap-2 mb-4 overflow-x-auto">
-            {MENU_CATEGORIES.map(cat => (
+            {menuCategories.map(cat => (
               <button
                 key={cat}
                 className={`px-4 py-2 rounded-full font-bold text-lg transition-colors ${activeCategory === cat ? 'bg-creamello-purple text-white' : 'bg-muted text-creamello-purple border border-creamello-purple'}`}
