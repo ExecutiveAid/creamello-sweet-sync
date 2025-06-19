@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatCurrencyReceipt, formatDateTimeDisplay } from '@/utils/formatters';
 
 export interface ReceiptTemplate {
   shopName: string;
@@ -55,19 +56,9 @@ export const Receipt: React.FC<ReceiptProps> = ({
   isPreview = false,
   className = ""
 }) => {
-  const formatCurrency = (amount: number) => `GHS ${amount.toFixed(2)}`;
+  const formatCurrency = (amount: number) => formatCurrencyReceipt(amount);
   
-  const formatDateTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
-  };
+  const formatDateTime = (dateString: string) => formatDateTimeDisplay(dateString);
 
   const centerText = (text: string, width: number) => {
     const padding = Math.max(0, Math.floor((width - text.length) / 2));

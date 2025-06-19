@@ -56,7 +56,7 @@ export const AppSidebar = () => {
   
   // Branding state
   const [brandingSettings, setBrandingSettings] = useState({
-    customShopName: 'Creamello',
+    customShopName: 'Razorbill IMS',
     logoUrl: '',
     primaryColor: '#8B5CF6',
     useCustomLogo: false
@@ -80,7 +80,7 @@ export const AppSidebar = () => {
           console.log('🎨 Branding data:', branding);
           
           const newSettings = {
-            customShopName: branding.customShopName || data.shop_name || 'Creamello',
+            customShopName: branding.customShopName || data.shop_name || 'Razorbill IMS',
             logoUrl: branding.logoUrl || '',
             primaryColor: branding.primaryColor || '#8B5CF6',
             useCustomLogo: branding.useCustomLogo || false

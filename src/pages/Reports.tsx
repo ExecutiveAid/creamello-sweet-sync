@@ -402,7 +402,7 @@ const Reports = () => {
       const { data: inventory, error } = await inventoryQuery.order('name');
       
       if (error) throw error;
-
+      
       // Get suppliers for lookup
       const { data: suppliers, error: suppliersError } = await supabase
         .from('suppliers')
@@ -573,6 +573,62 @@ const Reports = () => {
            ];
            break;
 
+        case 'purchase_orders':
+          processedData = await generatePurchaseOrdersReport();
+          filename = 'purchase_orders_report.csv';
+          columns = [
+            { key: 'order_number', label: 'Order Number' },
+            { key: 'supplier_name', label: 'Supplier' },
+            { key: 'order_date', label: 'Order Date' },
+            { key: 'status', label: 'Status' },
+            { key: 'expected_delivery', label: 'Expected Delivery' },
+            { key: 'total_amount', label: 'Total Amount (₵)' },
+            { key: 'items_count', label: 'Items Count' },
+            { key: 'received_percentage', label: 'Received %' },
+            { key: 'days_pending', label: 'Days Pending' },
+            { key: 'created_by', label: 'Created By' },
+            { key: 'notes', label: 'Notes' }
+          ];
+          break;
+
+        case 'sales_orders':
+          processedData = await generateSalesOrdersReport();
+          filename = 'sales_orders_report.csv';
+          columns = [
+            { key: 'order_number', label: 'Order Number' },
+            { key: 'customer_name', label: 'Customer' },
+            { key: 'order_date', label: 'Order Date' },
+            { key: 'status', label: 'Status' },
+            { key: 'delivery_date', label: 'Delivery Date' },
+            { key: 'total_amount', label: 'Total Amount (₵)' },
+            { key: 'items_count', label: 'Items Count' },
+            { key: 'fulfilled_percentage', label: 'Fulfilled %' },
+            { key: 'invoice_generated', label: 'Invoice Generated' },
+            { key: 'days_pending', label: 'Days Pending' },
+            { key: 'created_by', label: 'Created By' },
+            { key: 'notes', label: 'Notes' }
+          ];
+          break;
+
+        case 'invoices':
+          processedData = await generateInvoicesReport();
+          filename = 'invoices_report.csv';
+          columns = [
+            { key: 'invoice_number', label: 'Invoice Number' },
+            { key: 'customer_name', label: 'Customer' },
+            { key: 'sales_order_number', label: 'Sales Order' },
+            { key: 'issue_date', label: 'Issue Date' },
+            { key: 'due_date', label: 'Due Date' },
+            { key: 'status', label: 'Status' },
+            { key: 'total_amount', label: 'Total Amount (₵)' },
+            { key: 'paid_amount', label: 'Paid Amount (₵)' },
+            { key: 'outstanding_amount', label: 'Outstanding (₵)' },
+            { key: 'days_overdue', label: 'Days Overdue' },
+            { key: 'payment_method', label: 'Payment Method' },
+            { key: 'created_by', label: 'Created By' }
+          ];
+          break;
+
         default:
           // Basic inventory report (fallback)
           processedData = (inventory || []).map(item => ({
@@ -581,24 +637,35 @@ const Reports = () => {
           }));
           filename = 'inventory_basic_report.csv';
           columns = [
-            { key: 'name', label: 'Name' },
-            { key: 'category', label: 'Category' },
-            { key: 'available_quantity', label: 'Available Quantity' },
-            { key: 'unit', label: 'Unit' },
-            { key: 'price_per_unit', label: 'Price per Unit' },
-            { key: 'threshold', label: 'Low Stock Threshold' },
+        { key: 'name', label: 'Name' },
+        { key: 'category', label: 'Category' },
+        { key: 'available_quantity', label: 'Available Quantity' },
+        { key: 'unit', label: 'Unit' },
+        { key: 'price_per_unit', label: 'Price per Unit' },
+        { key: 'threshold', label: 'Low Stock Threshold' },
             { key: 'supplier_name', label: 'Supplier' },
-            { key: 'last_updated', label: 'Last Updated' }
-          ];
+        { key: 'last_updated', label: 'Last Updated' }
+      ];
+      }
+      
+      // Apply additional filters only for inventory reports
+      if (['stock_status', 'valuation', 'abc_analysis', 'supplier_performance', 'turnover', 'reorder_point', 'shrinkage', 'movement', 'opening_closing'].includes(inventoryReportType)) {
+        processedData = applyInventoryFilters(processedData);
       }
 
-      // Apply additional filters
-      processedData = applyInventoryFilters(processedData);
+      if (processedData.length === 0) {
+        toast({
+          title: 'No Data Found',
+          description: `No data available for ${inventoryReportType.replace('_', ' ')} report.`,
+          variant: 'destructive'
+        });
+        return;
+      }
 
       exportToCSV(processedData, filename, columns);
       
       toast({
-        title: 'Inventory Report Generated',
+        title: 'Report Generated',
         description: `Your ${inventoryReportType.replace('_', ' ')} report has been downloaded.`
       });
     } catch (err: any) {
@@ -1257,6 +1324,240 @@ const Reports = () => {
     }
   };
 
+  // Generate Purchase Orders Report
+  const generatePurchaseOrdersReport = async () => {
+    try {
+      // Get purchase orders first
+      const { data: purchaseOrders, error: poError } = await supabase
+        .from('purchase_orders')
+        .select(`
+          *,
+          purchase_order_items(*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (poError) throw poError;
+
+      // Get suppliers separately
+      const { data: suppliers, error: suppliersError } = await supabase
+        .from('suppliers')
+        .select('id, name');
+
+      if (suppliersError) console.warn('Could not fetch suppliers:', suppliersError);
+
+      // Get staff data for mapping IDs to names
+      const { data: staffMembers, error: staffError } = await supabase
+        .from('staff')
+        .select('id, name');
+        
+      if (staffError) console.warn('Could not fetch staff data:', staffError);
+
+      // Create lookup maps
+      const supplierMap = (suppliers || []).reduce((acc: Record<string, string>, supplier: any) => {
+        acc[supplier.id] = supplier.name;
+        return acc;
+      }, {});
+
+      const staffMap = (staffMembers || []).reduce((acc: Record<string, string>, member: any) => {
+        acc[member.id] = member.name;
+        return acc;
+      }, {});
+
+      return (purchaseOrders || []).map(po => {
+        const itemsCount = po.purchase_order_items?.length || 0;
+        const totalReceived = po.purchase_order_items?.reduce((sum: number, item: any) => 
+          sum + (item.received_quantity || 0), 0) || 0;
+        const totalOrdered = po.purchase_order_items?.reduce((sum: number, item: any) => 
+          sum + (item.quantity || 0), 0) || 0;
+        const receivedPercentage = totalOrdered > 0 ? 
+          ((totalReceived / totalOrdered) * 100).toFixed(1) : '0.0';
+        
+        const orderDate = new Date(po.order_date);
+        const daysPending = po.status === 'received' || po.status === 'closed' ? 
+          0 : Math.floor((new Date().getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        return {
+          order_number: po.order_number,
+          supplier_name: supplierMap[po.supplier_id] || 'N/A',
+          order_date: format(orderDate, 'yyyy-MM-dd'),
+          status: po.status.replace('_', ' ').toUpperCase(),
+          expected_delivery: po.expected_delivery ? format(new Date(po.expected_delivery), 'yyyy-MM-dd') : 'N/A',
+          total_amount: (po.total_amount || 0).toFixed(2),
+          items_count: itemsCount,
+          received_percentage: `${receivedPercentage}%`,
+          days_pending: daysPending,
+          created_by: staffMap[po.created_by] || 'Unknown',
+          notes: po.notes || ''
+        };
+      });
+    } catch (error) {
+      console.error('Error generating purchase orders report:', error);
+      throw error; // Re-throw to be caught by the main error handler
+    }
+  };
+
+  // Generate Sales Orders Report
+  const generateSalesOrdersReport = async () => {
+    try {
+      console.log('Generating sales orders report...');
+      // Get sales orders first
+      const { data: salesOrders, error: soError } = await supabase
+        .from('sales_orders')
+        .select(`
+          *,
+          sales_order_items(*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (soError) throw soError;
+
+      // Get customers separately
+      const { data: customers, error: customersError } = await supabase
+        .from('customers')
+        .select('id, name');
+
+      if (customersError) console.warn('Could not fetch customers:', customersError);
+
+      // Get staff data for mapping IDs to names
+      const { data: staffMembers, error: staffError } = await supabase
+        .from('staff')
+        .select('id, name');
+        
+      if (staffError) console.warn('Could not fetch staff data:', staffError);
+
+      // Create lookup maps
+      const customerMap = (customers || []).reduce((acc: Record<string, string>, customer: any) => {
+        acc[customer.id] = customer.name;
+        return acc;
+      }, {});
+
+      const staffMap = (staffMembers || []).reduce((acc: Record<string, string>, member: any) => {
+        acc[member.id] = member.name;
+        return acc;
+      }, {});
+
+      console.log('Sales orders data:', salesOrders);
+      return (salesOrders || []).map(so => {
+        const itemsCount = so.sales_order_items?.length || 0;
+        const totalFulfilled = so.sales_order_items?.reduce((sum: number, item: any) => 
+          sum + (item.fulfilled_quantity || 0), 0) || 0;
+        const totalOrdered = so.sales_order_items?.reduce((sum: number, item: any) => 
+          sum + (item.quantity || 0), 0) || 0;
+        const fulfilledPercentage = totalOrdered > 0 ? 
+          ((totalFulfilled / totalOrdered) * 100).toFixed(1) : '0.0';
+        
+        const orderDate = new Date(so.order_date);
+        const daysPending = so.status === 'fulfilled' || so.status === 'closed' ? 
+          0 : Math.floor((new Date().getTime() - orderDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        return {
+          order_number: so.order_number,
+          customer_name: customerMap[so.customer_id] || 'Walk-in Customer',
+          order_date: format(orderDate, 'yyyy-MM-dd'),
+          status: so.status.replace('_', ' ').toUpperCase(),
+          delivery_date: so.delivery_date ? format(new Date(so.delivery_date), 'yyyy-MM-dd') : 'N/A',
+          total_amount: (so.total_amount || 0).toFixed(2),
+          items_count: itemsCount,
+          fulfilled_percentage: `${fulfilledPercentage}%`,
+          invoice_generated: so.invoice_generated ? 'Yes' : 'No',
+          days_pending: daysPending,
+          created_by: staffMap[so.created_by] || 'Unknown',
+          notes: so.notes || ''
+        };
+      });
+    } catch (error) {
+      console.error('Error generating sales orders report:', error);
+      throw error; // Re-throw to be caught by the main error handler
+    }
+  };
+
+  // Generate Invoices Report
+  const generateInvoicesReport = async () => {
+    try {
+      // Get invoices first
+      const { data: invoices, error: invoiceError } = await supabase
+        .from('invoices')
+        .select(`
+          *,
+          payments(*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (invoiceError) throw invoiceError;
+
+      // Get customers separately
+      const { data: customers, error: customersError } = await supabase
+        .from('customers')
+        .select('id, name');
+
+      if (customersError) console.warn('Could not fetch customers:', customersError);
+
+      // Get sales orders separately
+      const { data: salesOrders, error: salesOrdersError } = await supabase
+        .from('sales_orders')
+        .select('id, order_number');
+
+      if (salesOrdersError) console.warn('Could not fetch sales orders:', salesOrdersError);
+
+      // Get staff data for mapping IDs to names
+      const { data: staffMembers, error: staffError } = await supabase
+        .from('staff')
+        .select('id, name');
+        
+      if (staffError) console.warn('Could not fetch staff data:', staffError);
+
+      // Create lookup maps
+      const customerMap = (customers || []).reduce((acc: Record<string, string>, customer: any) => {
+        acc[customer.id] = customer.name;
+        return acc;
+      }, {});
+
+      const salesOrderMap = (salesOrders || []).reduce((acc: Record<string, string>, so: any) => {
+        acc[so.id] = so.order_number;
+        return acc;
+      }, {});
+
+      const staffMap = (staffMembers || []).reduce((acc: Record<string, string>, member: any) => {
+        acc[member.id] = member.name;
+        return acc;
+      }, {});
+
+      return (invoices || []).map(invoice => {
+        const totalAmount = invoice.total_amount || 0;
+        const paidAmount = invoice.payments?.reduce((sum: number, payment: any) => 
+          sum + (payment.amount || 0), 0) || 0;
+        const outstandingAmount = Math.max(0, totalAmount - paidAmount);
+        
+        const dueDate = new Date(invoice.due_date);
+        const today = new Date();
+        const daysOverdue = invoice.status === 'overdue' ? 
+          Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+
+        // Get primary payment method
+        const primaryPayment = invoice.payments?.find((p: any) => p.amount > 0);
+        const paymentMethod = primaryPayment?.payment_method || 'Not Paid';
+
+        return {
+          invoice_number: invoice.invoice_number,
+          customer_name: customerMap[invoice.customer_id] || 'Walk-in Customer',
+          sales_order_number: salesOrderMap[invoice.sales_order_id] || 'N/A',
+          issue_date: format(new Date(invoice.issue_date), 'yyyy-MM-dd'),
+          due_date: format(dueDate, 'yyyy-MM-dd'),
+          status: invoice.status.replace('_', ' ').toUpperCase(),
+          total_amount: totalAmount.toFixed(2),
+          paid_amount: paidAmount.toFixed(2),
+          outstanding_amount: outstandingAmount.toFixed(2),
+          days_overdue: Math.max(0, daysOverdue),
+          payment_method: paymentMethod,
+          created_by: staffMap[invoice.created_by] || 'Unknown'
+        };
+      });
+    } catch (error) {
+      console.error('Error generating invoices report:', error);
+      throw error; // Re-throw to be caught by the main error handler
+    }
+  };
+
   // Generate production report
   const generateProductionReport = async () => {
     setLoading(true);
@@ -1714,6 +2015,9 @@ const Reports = () => {
                     <SelectItem value="shrinkage">Shrinkage Report</SelectItem>
                     <SelectItem value="movement">Inventory Movement Report</SelectItem>
                     <SelectItem value="opening_closing">Opening & Closing Stock Report</SelectItem>
+                    <SelectItem value="purchase_orders">Purchase Orders Report</SelectItem>
+                    <SelectItem value="sales_orders">Sales Orders Report</SelectItem>
+                    <SelectItem value="invoices">Invoices Report</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1794,14 +2098,14 @@ const Reports = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="inventoryReportFormat">Export Format</Label>
-                  <Select value={reportFormat} onValueChange={setReportFormat}>
-                    <SelectTrigger id="inventoryReportFormat">
-                      <SelectValue placeholder="Select format" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="csv">CSV</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <Select value={reportFormat} onValueChange={setReportFormat}>
+                  <SelectTrigger id="inventoryReportFormat">
+                    <SelectValue placeholder="Select format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="csv">CSV</SelectItem>
+                  </SelectContent>
+                </Select>
                 </div>
               </div>
 
@@ -1834,6 +2138,15 @@ const Reports = () => {
                 )}
                 {inventoryReportType === 'opening_closing' && (
                   <p className="text-sm text-slate-600">Opening & Closing Stock Report calculates stock levels at the beginning and end of a period, showing all movements (receipts, issues, adjustments) and value changes for accurate inventory accounting.</p>
+                )}
+                {inventoryReportType === 'purchase_orders' && (
+                  <p className="text-sm text-slate-600">Purchase Orders Report provides comprehensive analysis of all purchase orders including status tracking, supplier performance, delivery times, and financial summaries.</p>
+                )}
+                {inventoryReportType === 'sales_orders' && (
+                  <p className="text-sm text-slate-600">Sales Orders Report shows all sales orders with customer details, fulfillment status, revenue analysis, and invoice generation tracking.</p>
+                )}
+                {inventoryReportType === 'invoices' && (
+                  <p className="text-sm text-slate-600">Invoices Report provides detailed invoice analysis including payment status, outstanding amounts, overdue invoices, and revenue tracking with customer payment patterns.</p>
                 )}
               </div>
             </CardContent>

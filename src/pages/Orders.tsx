@@ -182,7 +182,7 @@ const Orders = () => {
 
   // Receipt template state
   const [receiptTemplate, setReceiptTemplate] = useState<ReceiptTemplate>({
-    shopName: 'CREAMELLO',
+    shopName: 'RAZORBILL IMS',
     address: '123 Ice Cream Lane, Accra',
     phone: '055-123-4567',
     width: 48,
@@ -205,7 +205,7 @@ const Orders = () => {
   const [receiptSettings, setReceiptSettings] = useState({
     autoPrint: false,
     showLogo: true,
-    footerText: 'Thank you for visiting Creamello!'
+    footerText: 'Thank you for choosing Razorbill IMS!'
   });
 
   useEffect(() => {

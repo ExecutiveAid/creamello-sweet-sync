@@ -273,8 +273,8 @@ const DEFAULT_LOCATION_INFO: LocationInfo = {
 };
 
 const Settings = () => {
-  const [shopName, setShopName] = useState('Creamello');
-  const [email, setEmail] = useState('contact@creamello.com');
+  const [shopName, setShopName] = useState('Razorbill IMS');
+  const [email, setEmail] = useState('contact@razorbill.com');
   const [currency, setCurrency] = useState('GHS');
   const [notifications, setNotifications] = useState({
     lowStock: true,
@@ -385,12 +385,12 @@ const Settings = () => {
   const [receiptSettings, setReceiptSettings] = useState({
     autoPrint: false,
     showLogo: true,
-    footerText: 'Thank you for visiting Creamello!'
+    footerText: 'Thank you for choosing Razorbill IMS!'
   });
 
   // Receipt Template settings
   const [receiptTemplate, setReceiptTemplate] = useState({
-    shopName: 'CREAMELLO',
+    shopName: 'RAZORBILL IMS',
     address: '123 Ice Cream Lane, Accra',
     phone: '055-123-4567',
     width: 48, // characters (58mm = 32, 80mm = 48)
@@ -418,7 +418,7 @@ const Settings = () => {
 
   // Add branding state variables
   const [brandingSettings, setBrandingSettings] = useState({
-    customShopName: 'Creamello', // For sidebar display
+    customShopName: 'Razorbill IMS', // For sidebar display
     logoUrl: '',
     primaryColor: '#8B5CF6', // Default purple
     useCustomLogo: false
@@ -434,6 +434,19 @@ const Settings = () => {
   const [contactInfo, setContactInfo] = useState<ContactInfo>(DEFAULT_CONTACT_INFO);
   const [locationInfo, setLocationInfo] = useState<LocationInfo>(DEFAULT_LOCATION_INFO);
 
+  // Add state for invoice layout settings
+  const [invoiceLayout, setInvoiceLayout] = useState({
+    businessName: '',
+    address: '',
+    phone: '',
+    email: '',
+    logoUrl: '',
+    footer: 'Thank you for your business!'
+  });
+  const [invoiceLogoFile, setInvoiceLogoFile] = useState<File | null>(null);
+
+  // Invoice layout settings are now loaded in the main fetchSettings useEffect
+
   // Apply brand colors when they change
   useEffect(() => {
     if (brandingSettings.primaryColor) {
@@ -444,7 +457,7 @@ const Settings = () => {
 
   useEffect(() => {
     const fetchSettings = async () => {
-      const { data, error } = await supabase.from('settings').select('*').limit(1).single();
+      const { data, error } = await supabase.from('settings').select('*').limit(1).maybeSingle();
       console.log('Fetched settings data:', data);
       console.log('Current branding_settings:', data?.branding_settings);
       
@@ -473,6 +486,22 @@ const Settings = () => {
             logoUrl: '',
             primaryColor: '#8B5CF6',
             useCustomLogo: false
+          });
+        }
+        
+        // Load invoice layout settings
+        if (data.invoice_layout) {
+          console.log('Loading invoice layout from settings:', data.invoice_layout);
+          setInvoiceLayout(data.invoice_layout);
+        } else {
+          console.log('No invoice layout found, using defaults');
+          setInvoiceLayout({
+            businessName: '',
+            address: '',
+            phone: '',
+            email: '',
+            logoUrl: '',
+            footer: 'Thank you for your business!'
           });
         }
         
@@ -1740,6 +1769,55 @@ const Settings = () => {
         title: 'Error',
         description: error.message,
         variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSaveInvoiceLayout = async () => {
+    try {
+      let logoUrl = invoiceLayout.logoUrl;
+      
+      // Upload new logo if selected
+      if (invoiceLogoFile) {
+        const fileExt = invoiceLogoFile.name.split('.').pop();
+        const fileName = `invoice-logo-${Date.now()}.${fileExt}`;
+        
+        const { data, error } = await supabase.storage
+          .from('branding')
+          .upload(fileName, invoiceLogoFile, { upsert: true });
+          
+        if (!error && data) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('branding')
+            .getPublicUrl(fileName);
+          logoUrl = publicUrl;
+        }
+      }
+      
+      const newLayout = { ...invoiceLayout, logoUrl };
+      setInvoiceLayout(newLayout);
+      
+      // Save to settings table
+      const error = await saveSettings({ invoice_layout: newLayout });
+      
+      if (!error) {
+        toast({ 
+          title: 'Invoice Layout Saved', 
+          description: 'Invoice layout settings have been updated successfully.' 
+        });
+        setInvoiceLogoFile(null); // Clear file input
+      } else {
+        toast({ 
+          title: 'Error', 
+          description: error.message, 
+          variant: 'destructive' 
+        });
+      }
+    } catch (err: any) {
+      toast({ 
+        title: 'Error', 
+        description: err.message || 'Failed to save invoice layout.', 
+        variant: 'destructive' 
       });
     }
   };
@@ -3210,6 +3288,164 @@ const Settings = () => {
                     ))}
                   </div>
                 </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Invoice Layout</CardTitle>
+                  <CardDescription>Customize your invoice print layout and branding.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="invoice-business-name">Business Name</Label>
+                        <Input 
+                          id="invoice-business-name"
+                          value={invoiceLayout.businessName} 
+                          onChange={e => setInvoiceLayout({ ...invoiceLayout, businessName: e.target.value })}
+                          placeholder="Your Business Name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="invoice-address">Address</Label>
+                        <Input 
+                          id="invoice-address"
+                          value={invoiceLayout.address} 
+                          onChange={e => setInvoiceLayout({ ...invoiceLayout, address: e.target.value })}
+                          placeholder="123 Main Street, City, Country"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="invoice-phone">Phone</Label>
+                        <Input 
+                          id="invoice-phone"
+                          value={invoiceLayout.phone} 
+                          onChange={e => setInvoiceLayout({ ...invoiceLayout, phone: e.target.value })}
+                          placeholder="+233 123 456 789"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="invoice-email">Email</Label>
+                        <Input 
+                          id="invoice-email"
+                          type="email"
+                          value={invoiceLayout.email} 
+                          onChange={e => setInvoiceLayout({ ...invoiceLayout, email: e.target.value })}
+                          placeholder="info@yourbusiness.com"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="invoice-logo">Logo</Label>
+                        <Input 
+                          id="invoice-logo"
+                          type="file" 
+                          accept="image/*" 
+                          onChange={e => setInvoiceLogoFile(e.target.files?.[0] || null)} 
+                        />
+                        {invoiceLayout.logoUrl && (
+                          <div className="mt-2">
+                            <img src={invoiceLayout.logoUrl} alt="Current Logo" className="h-16 border rounded" />
+                            <p className="text-xs text-muted-foreground mt-1">Current logo</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="invoice-footer">Footer Text</Label>
+                        <Textarea 
+                          id="invoice-footer"
+                          value={invoiceLayout.footer} 
+                          onChange={e => setInvoiceLayout({ ...invoiceLayout, footer: e.target.value })}
+                          placeholder="Thank you for your business!"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Professional Invoice Preview */}
+                    <div className="border rounded-lg p-4 bg-white shadow-sm">
+                      <h4 className="font-semibold mb-4 text-center">Invoice Preview</h4>
+                      <div className="bg-white border rounded p-4 text-sm" style={{ minHeight: '400px', fontFamily: 'Arial, sans-serif' }}>
+                        {/* Header */}
+                        <div className="border-b-2 border-gray-800 pb-4 mb-4 text-center">
+                          {invoiceLayout.logoUrl && (
+                            <img 
+                              src={invoiceLayout.logoUrl} 
+                              alt="Logo" 
+                              className="h-12 mx-auto mb-2 object-contain" 
+                            />
+                          )}
+                          <h2 className="text-2xl font-bold tracking-wider mb-2">INVOICE</h2>
+                          <div className="font-semibold text-base text-gray-800">
+                            {invoiceLayout.businessName || 'Your Business Name'}
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {invoiceLayout.address || '123 Main Street, City, Country'}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {invoiceLayout.phone || '+233 123 456 789'}
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {invoiceLayout.email || 'info@yourbusiness.com'}
+                          </div>
+                        </div>
+                        
+                        {/* Invoice Details */}
+                        <div className="flex justify-between mb-4">
+                          <div>
+                            <div className="font-semibold">Bill To:</div>
+                            <div className="text-gray-700">Sample Customer</div>
+                            <div className="text-gray-600 text-sm">customer@email.com</div>
+                          </div>
+                          <div className="text-right">
+                            <div><span className="font-semibold">Invoice #:</span> INV-00001</div>
+                            <div><span className="font-semibold">Issue Date:</span> {new Date().toLocaleDateString()}</div>
+                            <div><span className="font-semibold">Due Date:</span> {new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString()}</div>
+                            <div><span className="font-semibold">Status:</span> <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">Unpaid</span></div>
+                          </div>
+                        </div>
+                        
+                        {/* Sample Items */}
+                        <div className="mb-4">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="text-left py-2 text-sm font-semibold">Description</th>
+                                <th className="text-right py-2 text-sm font-semibold">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr className="border-b">
+                                <td className="py-2 text-sm">Ice Cream Service</td>
+                                <td className="text-right py-2 text-sm">GHS 150.00</td>
+                              </tr>
+                              <tr className="border-b">
+                                <td className="py-2 text-sm">Additional Toppings</td>
+                                <td className="text-right py-2 text-sm">GHS 25.00</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                        
+                        {/* Total */}
+                        <div className="flex justify-end mb-4">
+                          <div className="text-right">
+                            <div className="text-lg font-bold border-t pt-2">
+                              <span>Total: GHS 175.00</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Footer */}
+                        <div className="border-t pt-4 mt-4 text-center text-sm text-gray-600">
+                          {invoiceLayout.footer || 'Thank you for your business!'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button onClick={handleSaveInvoiceLayout}>Save Invoice Layout</Button>
+                </CardFooter>
               </Card>
             </div>
             

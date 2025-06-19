@@ -18,9 +18,9 @@ export default defineConfig(({ mode }) => ({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt'],
       manifest: {
-        name: 'Creamello Sweet Sync',
-        short_name: 'Creamello',
-        description: 'Ice Cream Shop Management System',
+        name: 'Razorbill Inventory Management System',
+        short_name: 'Razorbill IMS',
+                  description: 'Comprehensive Inventory Management System',
         theme_color: '#9558E3', // creamello-purple
         background_color: '#ffffff',
         display: 'standalone',
@@ -49,13 +49,13 @@ export default defineConfig(({ mode }) => ({
             sizes: '1280x720',
             type: 'image/png',
             form_factor: 'wide',
-            label: 'Creamello Dashboard on Desktop'
+            label: 'Razorbill IMS Dashboard on Desktop'
           },
           {
             src: '/screenshots/mobile.png',
             sizes: '750x1334',
             type: 'image/png',
-            label: 'Creamello Dashboard on Mobile'
+            label: 'Razorbill IMS Dashboard on Mobile'
           }
         ]
       }
