@@ -26,18 +26,18 @@ export default defineConfig(({ mode }) => ({
         display: 'standalone',
         icons: [
           {
-            src: '/creamello_192.png',
+            src: '/Razorbill_192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/creamello_512.png',
+            src: '/Razorbill_512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any'
           },
           {
-            src: '/creamello_512.png',
+            src: '/Razorbill_512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable'
@@ -45,14 +45,14 @@ export default defineConfig(({ mode }) => ({
         ],
         screenshots: [
           {
-            src: '/screenshots/desktop.png',
+            src: '/screenshots/Razorbilldesktop.png',
             sizes: '1280x720',
             type: 'image/png',
             form_factor: 'wide',
             label: 'Razorbill IMS Dashboard on Desktop'
           },
           {
-            src: '/screenshots/mobile.png',
+            src: '/screenshots/Razorbillmobile.png',
             sizes: '750x1334',
             type: 'image/png',
             label: 'Razorbill IMS Dashboard on Mobile'

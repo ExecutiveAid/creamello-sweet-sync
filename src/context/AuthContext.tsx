@@ -23,8 +23,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Restore staff from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem('creamello_staff');
-    const attendanceId = localStorage.getItem('creamello_attendance_id');
+    const stored = localStorage.getItem('razorbill_staff');
+    const attendanceId = localStorage.getItem('razorbill_attendance_id');
     
     if (stored) {
       try {
@@ -82,14 +82,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } else if (attendanceData) {
           // Store the attendance record ID for logout
           setCurrentAttendanceRecord(attendanceData.id);
-          localStorage.setItem('creamello_attendance_id', attendanceData.id);
+          localStorage.setItem('razorbill_attendance_id', attendanceData.id);
         }
       } catch (attendanceErr) {
         console.error('Error logging attendance:', attendanceErr);
       }
       
       setStaff(staffObj);
-      localStorage.setItem('creamello_staff', JSON.stringify(staffObj));
+      localStorage.setItem('razorbill_staff', JSON.stringify(staffObj));
       setLoading(false);
       return {};
     } catch (err: any) {
@@ -110,14 +110,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           .eq('id', currentAttendanceRecord);
           
         setCurrentAttendanceRecord(null);
-        localStorage.removeItem('creamello_attendance_id');
+        localStorage.removeItem('razorbill_attendance_id');
       } catch (err) {
         console.error('Error updating attendance record on logout:', err);
       }
     }
     
     setStaff(null);
-    localStorage.removeItem('creamello_staff');
+    localStorage.removeItem('razorbill_staff');
   };
 
   return (

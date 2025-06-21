@@ -482,7 +482,7 @@ const Settings = () => {
         } else {
           // Only use defaults if no branding settings exist
           setBrandingSettings({
-            customShopName: 'Creamello',
+            customShopName: 'Razorbill',
             logoUrl: '',
             primaryColor: '#8B5CF6',
             useCustomLogo: false
@@ -513,12 +513,12 @@ const Settings = () => {
         setReceiptSettings(data.receipt_settings || {
           autoPrint: false,
           showLogo: true,
-          footerText: 'Thank you for visiting Creamello!'
+          footerText: 'Thank you for visiting Razorbill!'
         });
         
         // Load receipt template settings
         setReceiptTemplate(data.receipt_template || {
-          shopName: 'CREAMELLO',
+          shopName: 'RAZORBILL',
           address: '123 Ice Cream Lane, Accra',
           phone: '055-123-4567',
           width: 48,
@@ -1859,7 +1859,7 @@ const Settings = () => {
                       id="shop-name"
                       value={shopName}
                       onChange={(e) => setShopName(e.target.value)}
-                      placeholder="Creamello Ice Cream Shop"
+                      placeholder="Razorbill Ice Cream Shop"
                     />
                     <p className="text-sm text-muted-foreground">
                       Used on receipts, reports, and official documents
@@ -1903,7 +1903,7 @@ const Settings = () => {
                         id="sidebar-shop-name"
                         value={brandingSettings.customShopName}
                         onChange={(e) => setBrandingSettings({ ...brandingSettings, customShopName: e.target.value })}
-                        placeholder="Creamello"
+                        placeholder="Razorbill"
                       />
                       <p className="text-sm text-muted-foreground">
                         Short name shown in the sidebar and app interface
@@ -2118,7 +2118,7 @@ const Settings = () => {
                       id="legalName"
                       value={businessProfile.legalBusinessName}
                       onChange={(e) => setBusinessProfile({ ...businessProfile, legalBusinessName: e.target.value })}
-                      placeholder="Creamello Ice Cream Ltd."
+                      placeholder="Razorbill Ice Cream Ltd."
                     />
                   </div>
                   <div className="space-y-2">
@@ -2127,7 +2127,7 @@ const Settings = () => {
                       id="tradingAs"
                       value={businessProfile.tradingAs}
                       onChange={(e) => setBusinessProfile({ ...businessProfile, tradingAs: e.target.value })}
-                      placeholder="Creamello"
+                      placeholder="Razorbill"
                     />
                   </div>
                   <div className="space-y-2">
@@ -2374,7 +2374,7 @@ const Settings = () => {
                           id="shop-name"
                           value={receiptTemplate.shopName}
                           onChange={(e) => setReceiptTemplate({ ...receiptTemplate, shopName: e.target.value })}
-                          placeholder="CREAMELLO"
+                          placeholder="RAZORBILL"
                         />
                       </div>
                       <div className="space-y-2">
