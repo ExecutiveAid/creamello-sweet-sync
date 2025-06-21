@@ -45,14 +45,14 @@ export default defineConfig(({ mode }) => ({
         ],
         screenshots: [
           {
-            src: '/screenshots/Razorbilldesktop.png',
+            src: 'public/screenshots/Razorbilldesktop.png',
             sizes: '1280x720',
             type: 'image/png',
             form_factor: 'wide',
             label: 'Razorbill IMS Dashboard on Desktop'
           },
           {
-            src: '/screenshots/Razorbillmobile.png',
+            src: 'public/screenshots/Razorbillmobile.png',
             sizes: '750x1334',
             type: 'image/png',
             label: 'Razorbill IMS Dashboard on Mobile'
