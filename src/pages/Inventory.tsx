@@ -137,8 +137,7 @@ const Inventory = () => {
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<InventoryProduct[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [showExpiryItems, setShowExpiryItems] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -384,20 +383,23 @@ const Inventory = () => {
         product.category.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
-    if (startDate) {
-      filtered = filtered.filter(product => product.date_created >= startDate);
-    }
-    if (endDate) {
-      filtered = filtered.filter(product => product.date_created <= endDate);
-    }
     
     // Apply low stock filter if enabled
     if (showLowStockOnly) {
       filtered = filtered.filter(product => product.available_quantity <= product.minimum_stock_level);
     }
     
+    // Apply expiry items filter if enabled
+    if (showExpiryItems) {
+      filtered = filtered.filter(product => {
+        if (!product.expiration_date) return false;
+        const daysToExpiry = differenceInDays(parseISO(product.expiration_date), new Date());
+        return daysToExpiry >= 0 && daysToExpiry <= 7; // Show items expiring within 7 days
+      });
+    }
+    
     setFilteredProducts(filtered);
-  }, [searchQuery, products, startDate, endDate, showLowStockOnly]);
+  }, [searchQuery, products, showLowStockOnly, showExpiryItems]);
 
   // Calculate summary stats whenever products change
   useEffect(() => {
@@ -911,19 +913,18 @@ const Inventory = () => {
                 Show Low Stock Only
               </label>
             </div>
-            <div className="flex gap-2 items-center">
-              <label>From:</label>
-              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{maxWidth: 160}} />
-              <label>To:</label>
-              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{maxWidth: 160}} />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setStartDate('');
-                  setEndDate('');
-                }}
-                disabled={!startDate && !endDate}
-              >Clear</Button>
+            <div className="flex items-center mr-4">
+              <input
+                type="checkbox"
+                id="expiryItemsFilter"
+                checked={showExpiryItems}
+                onChange={(e) => setShowExpiryItems(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary mr-2"
+              />
+              <label htmlFor="expiryItemsFilter" className="text-sm font-medium flex items-center">
+                <AlertTriangle className="h-4 w-4 text-red-500 mr-1" />
+                Show Expiry Items (7 days)
+              </label>
             </div>
             {showLowStockOnly && filteredProducts.length === 0 && (
               <p className="text-sm text-muted-foreground">No low stock items found</p>
@@ -931,6 +932,14 @@ const Inventory = () => {
             {showLowStockOnly && (
               <Badge className="bg-amber-500">
                 {filteredProducts.length} Low Stock {filteredProducts.length === 1 ? 'Item' : 'Items'}
+              </Badge>
+            )}
+            {showExpiryItems && filteredProducts.length === 0 && (
+              <p className="text-sm text-muted-foreground">No items expiring within 7 days</p>
+            )}
+            {showExpiryItems && (
+              <Badge className="bg-red-500">
+                {filteredProducts.length} Expiring {filteredProducts.length === 1 ? 'Item' : 'Items'}
               </Badge>
             )}
           </div>
